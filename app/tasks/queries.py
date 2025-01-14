@@ -5,6 +5,8 @@ from typing import Optional, Dict, Any
 
 import pandas as pd
 from celery import Task
+from celery.exceptions import MaxRetriesExceededError
+from duckdb import OperationalError, ProgrammingError
 
 from app.core.celery import celery_app
 from app.db.duckdb import get_duckdb_connection
@@ -20,11 +22,36 @@ class QueryTask(Task):
             self._db = get_duckdb_connection()
         return self._db
 
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """Handle task failure"""
+        query_id = kwargs.get('query_id') or args[0]
+        
+        error_msg = f"Task failed: {str(exc)}"
+        if isinstance(exc, MaxRetriesExceededError):
+            error_msg = f"Max retries exceeded: {str(exc.__cause__)}"
 
-@celery_app.task(bind=True, base=QueryTask)
+        try:
+            self.db.execute("""
+                UPDATE query_jobs
+                SET status = ?, completed_at = ?, error = ?
+                WHERE job_id = ?
+            """, [QueryStatus.FAILED, datetime.utcnow(), error_msg, query_id])
+        except Exception:
+            pass  # Don't raise new exceptions in failure handler
+
+
+@celery_app.task(
+    bind=True,
+    base=QueryTask,
+    autoretry_for=(OperationalError, ProgrammingError),
+    retry_kwargs={'max_retries': 2},
+    retry_backoff=True,
+    retry_backoff_max=300,  # Max delay of 5 minutes
+    retry_jitter=True
+)
 def execute_query(
     self,
-    sync_id: str,
+    query_id: str,
     query: str,
     output_format: str,
     params: Optional[Dict[str, Any]] = None
@@ -34,9 +61,9 @@ def execute_query(
         # Update status to running
         self.db.execute("""
             UPDATE query_jobs
-            SET status = ?, started_at = ?
+            SET status = ?, started_at = ?, retries = ?
             WHERE job_id = ?
-        """, [QueryStatus.RUNNING, datetime.utcnow(), sync_id])
+        """, [QueryStatus.RUNNING, datetime.utcnow(), self.request.retries, query_id])
 
         # Execute query
         result = self.db.execute(query).df()
@@ -45,7 +72,7 @@ def execute_query(
         output_dir = Path("./data/query_results")
         output_dir.mkdir(exist_ok=True)
         
-        file_name = f"query_{sync_id}"
+        file_name = f"query_{query_id}"
         if output_format == OutputFormat.CSV:
             file_path = output_dir / f"{file_name}.csv"
             result.to_csv(file_path, index=False)
@@ -72,7 +99,7 @@ def execute_query(
             datetime.utcnow(),
             str(file_path),
             json.dumps(stats),
-            sync_id
+            query_id
         ])
 
         return {
@@ -81,13 +108,17 @@ def execute_query(
             "stats": stats
         }
 
+    except (OperationalError, ProgrammingError) as e:
+        # These exceptions will trigger automatic retry
+        raise
+
     except Exception as e:
         error_msg = str(e)
         self.db.execute("""
             UPDATE query_jobs
             SET status = ?, completed_at = ?, error = ?
             WHERE job_id = ?
-        """, [QueryStatus.FAILED, datetime.utcnow(), error_msg, sync_id])
+        """, [QueryStatus.FAILED, datetime.utcnow(), error_msg, query_id])
         
         return {
             "status": QueryStatus.FAILED,
@@ -95,7 +126,13 @@ def execute_query(
         }
 
 
-@celery_app.task(bind=True, base=QueryTask)
+@celery_app.task(
+    bind=True,
+    base=QueryTask,
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 1},
+    retry_backoff=True
+)
 def cleanup_old_results(self, max_age_hours: int = 24) -> Dict[str, int]:
     """Clean up old query results"""
     try:

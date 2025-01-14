@@ -1,8 +1,9 @@
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional
-
 from celery import Task
+from celery.exceptions import MaxRetriesExceededError
+from snowflake.connector.errors import ProgrammingError, OperationalError
 
 from app.core.celery import celery_app
 from app.db.duckdb import get_duckdb_connection
@@ -26,8 +27,48 @@ class SyncTask(Task):
             self._snowflake = SnowflakeClient()
         return self._snowflake
 
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """Handle task failure"""
+        sync_id = kwargs.get('sync_id') or args[0]
+        table_name = kwargs.get('table_name') or args[1]
+        schema_name = kwargs.get('schema_name') or args[2]
+        
+        error_msg = f"Task failed: {str(exc)}"
+        if isinstance(exc, MaxRetriesExceededError):
+            error_msg = f"Max retries exceeded: {str(exc.__cause__)}"
 
-@celery_app.task(bind=True, base=SyncTask)
+        try:
+            # Update sync job status
+            self.db.execute("""
+                UPDATE sync_jobs
+                SET status = ?, completed_at = ?, error = ?
+                WHERE sync_id = ?
+            """, [SyncStatus.FAILED, datetime.utcnow(), error_msg, sync_id])
+
+            # Update table sync status
+            self.db.execute("""
+                UPDATE table_sync_status
+                SET last_sync_status = ?, last_error = ?
+                WHERE table_id = (
+                    SELECT table_id
+                    FROM allowed_tables
+                    WHERE table_name = ?
+                    AND schema_name = ?
+                )
+            """, [SyncStatus.FAILED, error_msg, table_name, schema_name])
+        except Exception:
+            pass  # Don't raise new exceptions in failure handler
+
+
+@celery_app.task(
+    bind=True,
+    base=SyncTask,
+    autoretry_for=(OperationalError, ProgrammingError),
+    retry_kwargs={'max_retries': 3},
+    retry_backoff=True,  # Exponential backoff
+    retry_backoff_max=600,  # Max delay of 10 minutes
+    retry_jitter=True  # Add randomness to backoff
+)
 def sync_table(
     self,
     sync_id: str,
@@ -43,9 +84,9 @@ def sync_table(
         # Update status to running
         self.db.execute("""
             UPDATE sync_jobs
-            SET status = ?, started_at = ?
+            SET status = ?, started_at = ?, retries = ?
             WHERE sync_id = ?
-        """, [SyncStatus.RUNNING, datetime.utcnow(), sync_id])
+        """, [SyncStatus.RUNNING, datetime.utcnow(), self.request.retries, sync_id])
 
         # Get Snowflake schema
         columns = self.snowflake.fetch_schema(table_name, schema_name)
@@ -192,6 +233,10 @@ def sync_table(
             "status": SyncStatus.COMPLETED,
             "stats": stats
         }
+
+    except (OperationalError, ProgrammingError) as e:
+        # These exceptions will trigger automatic retry
+        raise
 
     except Exception as e:
         error_msg = str(e)

@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from app.core.config import settings
 
 celery_app = Celery(
@@ -26,5 +27,31 @@ celery_app.conf.update(
         "app.tasks.queries.*": {"queue": "queries"},
         "app.tasks.sync.*": {"queue": "sync"},
         "app.tasks.cleanup.*": {"queue": "cleanup"},
+    },
+    # Beat schedule
+    beat_schedule={
+        "cleanup-old-jobs": {
+            "task": "app.tasks.cleanup.cleanup_old_jobs",
+            "schedule": crontab(hour="*/6"),  # Every 6 hours
+            "kwargs": {
+                "job_age_hours": 24,  # Keep completed jobs for 24 hours
+                "failed_job_age_hours": 72,  # Keep failed jobs for 72 hours
+            },
+        },
+        "cleanup-old-query-results": {
+            "task": "app.tasks.queries.cleanup_old_results",
+            "schedule": crontab(hour="*/4"),  # Every 4 hours
+            "kwargs": {
+                "max_age_hours": 24,  # Keep query results for 24 hours
+            },
+        },
+        "cleanup-stale-jobs": {
+            "task": "app.tasks.cleanup.cleanup_old_jobs",
+            "schedule": crontab(minute="*/15"),  # Every 15 minutes
+            "kwargs": {
+                "job_age_hours": 1,  # Mark jobs as failed if running for more than 1 hour
+                "failed_job_age_hours": 1,
+            },
+        },
     }
 ) 
