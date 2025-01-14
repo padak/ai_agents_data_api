@@ -145,38 +145,80 @@
 
 ### Implementation Details:
 1. **Docker Configuration**:
-   - FastAPI application container with Python 3.11 and Poetry
-   - Celery worker container for async task processing
-   - Celery Beat container for scheduled tasks
-   - Flower container for Celery monitoring
-   - Redis container for message broker and result backend
-   - Shared network and volume configuration
-   - Environment variable management
+   - **Main Application Container** (`Dockerfile`):
+     - FastAPI application with Poetry
+     - Exposed port 8000
+     - Environment variable configuration
+     - Volume mounting for data persistence
+
+   - **Celery Worker Container** (`Dockerfile.celery`):
+     - Async task processing
+     - Shared data volume
+     - Snowflake credentials injection
+     - Automatic retries and error handling
+
+   - **Celery Beat Container** (`Dockerfile.celerybeat`):
+     - Scheduled task management
+     - Cleanup jobs scheduling
+     - Redis connection for task distribution
+
+   - **Flower Container** (`Dockerfile.flower`):
+     - Task monitoring interface
+     - Exposed port 5555
+     - Real-time task tracking
+     - Worker status monitoring
 
 2. **Container Features**:
-   - Optimized Python slim images
-   - Multi-stage builds for smaller images
-   - Proper dependency management with Poetry
-   - Volume mounting for persistent data
-   - Health checks and automatic restarts
-   - Exposed ports for services:
-     - FastAPI: 8000
-     - Flower: 5555
-     - Redis: 6379
+   - Base image: python:3.11-slim for minimal size
+   - Poetry version 1.7.1 for dependency management
+   - Environment variables:
+     - PYTHONUNBUFFERED=1 for real-time logging
+     - PYTHONDONTWRITEBYTECODE=1 for cleaner containers
+     - POETRY_VIRTUALENVS_CREATE=false for simpler setup
+   - System dependencies:
+     - curl for Poetry installation
+     - build-essential for package compilation
+   - Optimized cleanup of package caches
 
-3. **Docker Compose Setup**:
-   - Service orchestration with version 3.8
-   - Environment variable injection
-   - Volume management for data persistence
-   - Network configuration for service communication
-   - Dependency ordering with `depends_on`
-   - Automatic restarts with `restart: unless-stopped`
+3. **Docker Compose Setup** (`docker-compose.yml`):
+   - Service orchestration:
+     - FastAPI application
+     - Celery workers
+     - Celery Beat scheduler
+     - Flower monitoring
+     - Redis message broker
+   - Network configuration:
+     - Isolated app-network
+     - Internal service discovery
+     - Exposed ports: 8000, 5555, 6379
+   - Volume management:
+     - Persistent Redis data
+     - Shared application data
+     - Query results storage
+   - Environment handling:
+     - Snowflake credentials
+     - Admin authentication
+     - Redis connection
+   - Service dependencies:
+     - Proper startup order
+     - Health checks
+     - Automatic restarts
 
 4. **Development Tools**:
-   - `.dockerignore` for optimized builds
-   - Separate Dockerfiles for each service
-   - Shared configuration through environment variables
-   - Development and production configurations
+   - `.dockerignore` configuration:
+     - Git files exclusion
+     - Python cache exclusion
+     - Virtual environment exclusion
+     - IDE files exclusion
+     - Log and data files exclusion
+   - Build optimization:
+     - Layer caching
+     - Multi-stage builds
+     - Dependency caching
+   - Development workflow:
+     - Hot reload support
+     - Volume mounting
+     - Environment separation
 
 ## Completed Features
 
