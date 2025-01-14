@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REDIS_HOST=redis
+      - SNOWFLAKE_ACCOUNT=${SNOWFLAKE_ACCOUNT}
+      - SNOWFLAKE_USER=${SNOWFLAKE_USER}
+      - SNOWFLAKE_PASSWORD=${SNOWFLAKE_PASSWORD}
+      - SNOWFLAKE_WAREHOUSE=${SNOWFLAKE_WAREHOUSE}
+      - SNOWFLAKE_DATABASE=${SNOWFLAKE_DATABASE}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REDIS_HOST=redis
+      - SNOWFLAKE_ACCOUNT=${SNOWFLAKE_ACCOUNT}
+      - SNOWFLAKE_USER=${SNOWFLAKE_USER}
+      - SNOWFLAKE_PASSWORD=${SNOWFLAKE_PASSWORD}
+      - SNOWFLAKE_WAREHOUSE=${SNOWFLAKE_WAREHOUSE}
+      - SNOWFLAKE_DATABASE=${SNOWFLAKE_DATABASE}
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.celerybeat
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.flower
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+      - celery_worker
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  redis-data:
+
+networks:
+  app-network:
+    driver: bridge 
