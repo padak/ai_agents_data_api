@@ -20,29 +20,42 @@ from app.schemas.sync import (
 
 class SyncService:
     def __init__(self):
-        self.db = get_duckdb_connection()
-        self.snowflake = SnowflakeClient()
-        self._init_tables()
+        self._snowflake = None
+        self._duckdb = None
+
+    @property
+    def snowflake(self):
+        if self._snowflake is None:
+            from app.db.snowflake import SnowflakeClient
+            self._snowflake = SnowflakeClient()
+        return self._snowflake
+
+    @property
+    def duckdb(self):
+        if self._duckdb is None:
+            import duckdb
+            from app.core.config import settings
+            self._duckdb = duckdb.connect(settings.DUCKDB_PATH)
+            self._init_tables()
+        return self._duckdb
 
     def _init_tables(self):
-        """Initialize the required tables if they don't exist"""
-        # Sync jobs table
-        self.db.execute("""
+        """Initialize required tables for sync management"""
+        self.duckdb.execute("""
             CREATE TABLE IF NOT EXISTS sync_jobs (
-                sync_id VARCHAR PRIMARY KEY,
-                table_id VARCHAR NOT NULL,
-                strategy VARCHAR NOT NULL,
+                job_id VARCHAR PRIMARY KEY,
+                table_name VARCHAR NOT NULL,
+                sync_type VARCHAR NOT NULL,
                 status VARCHAR NOT NULL,
-                started_at TIMESTAMP,
-                completed_at TIMESTAMP,
                 error TEXT,
                 stats JSON,
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
             )
         """)
 
         # Table sync status
-        self.db.execute("""
+        self.duckdb.execute("""
             CREATE TABLE IF NOT EXISTS table_sync_status (
                 table_id VARCHAR PRIMARY KEY,
                 last_sync_id VARCHAR,
@@ -103,7 +116,7 @@ class SyncService:
                 {', '.join(column_defs)}
             )
         """
-        self.db.execute(create_query)
+        self.duckdb.execute(create_query)
 
     async def _sync_batch(
         self,
@@ -120,11 +133,11 @@ class SyncService:
 
         # For full sync, truncate first
         if strategy == SyncStrategy.FULL:
-            self.db.execute(f"DELETE FROM {schema_name}.{table_name}")
+            self.duckdb.execute(f"DELETE FROM {schema_name}.{table_name}")
 
         # Insert data
-        self.db.register("temp_df", df)
-        self.db.execute(f"""
+        self.duckdb.register("temp_df", df)
+        self.duckdb.execute(f"""
             INSERT INTO {schema_name}.{table_name}
             SELECT * FROM temp_df
         """)
@@ -140,7 +153,7 @@ class SyncService:
         config = config or SyncConfig()
         
         # Get table ID
-        result = self.db.execute("""
+        result = self.duckdb.execute("""
             SELECT table_id
             FROM allowed_tables
             WHERE table_name = ? AND schema_name = ? AND status = 'active'
@@ -157,7 +170,7 @@ class SyncService:
         started_at = datetime.utcnow()
 
         # Create sync job
-        self.db.execute("""
+        self.duckdb.execute("""
             INSERT INTO sync_jobs (
                 sync_id, table_id, strategy, status, started_at
             ) VALUES (?, ?, ?, ?, ?)
@@ -180,7 +193,7 @@ class SyncService:
             # Get data and sync
             if sync_request.strategy == SyncStrategy.INCREMENTAL:
                 # Get last sync value
-                result = self.db.execute("""
+                result = self.duckdb.execute("""
                     SELECT stats
                     FROM sync_jobs
                     WHERE table_id = ? AND status = 'completed'
@@ -220,7 +233,7 @@ class SyncService:
 
             # Update sync status
             completed_at = datetime.utcnow()
-            self.db.execute("""
+            self.duckdb.execute("""
                 UPDATE sync_jobs
                 SET status = ?, completed_at = ?, stats = ?
                 WHERE sync_id = ?
@@ -231,7 +244,7 @@ class SyncService:
                 sync_request.table_name,
                 sync_request.schema_name
             )
-            self.db.execute("""
+            self.duckdb.execute("""
                 INSERT INTO table_sync_status (
                     table_id, last_sync_id, last_sync_status,
                     last_sync_at, row_count, size_bytes
@@ -261,13 +274,13 @@ class SyncService:
 
         except Exception as e:
             error_msg = str(e)
-            self.db.execute("""
+            self.duckdb.execute("""
                 UPDATE sync_jobs
                 SET status = ?, completed_at = ?, error = ?
                 WHERE sync_id = ?
             """, [SyncStatus.FAILED, datetime.utcnow(), error_msg, sync_id])
 
-            self.db.execute("""
+            self.duckdb.execute("""
                 UPDATE table_sync_status
                 SET last_sync_status = ?, last_error = ?
                 WHERE table_id = ?
@@ -280,7 +293,7 @@ class SyncService:
 
     async def get_sync_status(self, sync_id: str) -> SyncResponse:
         """Get the status of a sync job"""
-        result = self.db.execute("""
+        result = self.duckdb.execute("""
             SELECT 
                 j.sync_id,
                 t.table_name,
@@ -318,7 +331,7 @@ class SyncService:
         self, table_name: str, schema_name: str
     ) -> TableSyncStatus:
         """Get sync status for a table"""
-        result = self.db.execute("""
+        result = self.duckdb.execute("""
             SELECT 
                 t.table_id,
                 t.table_name,

@@ -3,6 +3,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Project Settings
+    PROJECT_NAME: str = "AI Agents Data API"
+    API_V1_STR: str = "/api/v1"
+
     # API Settings
     API_VERSION: str
     DEBUG: bool = False
@@ -33,6 +37,18 @@ class Settings(BaseSettings):
     # Server Settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+
+    # Redis Settings
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
+
+    # Celery Settings
+    CELERY_BROKER_URL: str = "redis://redis:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://redis:6379/1"
+    CELERY_WORKER_CONCURRENCY: int = 2
+    CELERY_TASK_TRACK_STARTED: bool = True
+    CELERY_TASK_TIME_LIMIT: int = 3600  # 1 hour
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 3300  # 55 minutes
 
     model_config = SettingsConfigDict(
         env_file=".env",
