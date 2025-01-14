@@ -3,31 +3,28 @@ FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    POETRY_VERSION=1.7.1 \
-    POETRY_HOME="/opt/poetry" \
-    POETRY_VIRTUALENVS_CREATE=false
-
-# Add Poetry to PATH
-ENV PATH="$POETRY_HOME/bin:$PATH"
+    PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
         build-essential \
-    && curl -sSL https://install.python-poetry.org | python - \
+        python3-dev \
+        libpq-dev \
+        gcc \
+        g++ \
+        cmake \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy Poetry files
-COPY pyproject.toml poetry.lock ./
-
-# Install dependencies
-RUN poetry install --no-root --no-dev
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir duckdb==1.1.3
 
 # Copy application code
 COPY app app/
@@ -39,4 +36,4 @@ RUN mkdir -p data/query_results
 EXPOSE 8000
 
 # Command to run the application
-CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] 

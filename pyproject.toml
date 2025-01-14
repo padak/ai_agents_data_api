@@ -1,55 +1,33 @@
 [tool.poetry]
-name = "ai-agents-data-api"
+name = "ai_agents_data_api"
 version = "0.1.0"
-description = "Backend API for AI Agent Data Access"
-authors = ["padak"]
-readme = "README.md"
+description = "AI Agents Data API"
+authors = ["Petr Padak"]
 packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "^0.109.0"
-uvicorn = "^0.27.0"
-duckdb = "^0.9.2"
-snowflake-connector-python = "^3.6.0"
+python = "~3.11.0"
+fastapi = "^0.109.2"
+uvicorn = "^0.27.1"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
-python-multipart = "^0.0.6"
-pandas = "^2.2.0"
-pyarrow = "^14.0.2"
-pydantic = "^2.6.0"
-pydantic-settings = "^2.1.0"
-python-dotenv = "^1.0.0"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.9"
+sqlalchemy = "^2.0.27"
+alembic = "^1.13.1"
+snowflake-connector-python = "^3.12.4"
+pandas = "^2.2.3"
+redis = "^5.2.1"
 celery = "^5.3.6"
-redis = "^5.0.1"
 flower = "^2.0.1"
+pydantic-settings = "^2.1.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4.4"
+pytest = "^8.0.0"
 pytest-cov = "^4.1.0"
-black = "^24.1.1"
+mypy = "^1.14.1"
+flake8 = "^7.1.1"
 isort = "^5.13.2"
-mypy = "^1.8.0"
-ruff = "^0.1.14"
-pre-commit = "^3.6.0"
 
 [build-system]
 requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.black]
-line-length = 100
-target-version = ["py311"]
-
-[tool.isort]
-profile = "black"
-line_length = 100
-multi_line_output = 3
-
-[tool.mypy]
-python_version = "3.11"
-strict = true
-ignore_missing_imports = true
-
-[tool.ruff]
-line-length = 100
-target-version = "py311" 
+build-backend = "poetry.core.masonry.api" 
