@@ -32,8 +32,8 @@ RUN poetry install --no-root --no-dev
 # Copy application code
 COPY app app/
 
-# Copy configuration files
-COPY .env ./
+# Create data directory
+RUN mkdir -p data/query_results
 
 # Expose port
 EXPOSE 8000

@@ -32,11 +32,8 @@ RUN poetry install --no-root --no-dev
 # Copy application code
 COPY app app/
 
-# Copy configuration files
-COPY .env ./
-
 # Create data directory
-RUN mkdir -p /app/data/query_results
+RUN mkdir -p data/query_results
 
 # Command to run Celery worker
 CMD ["poetry", "run", "celery", "-A", "app.core.celery", "worker", "--loglevel=info"] 
