@@ -1,198 +1,184 @@
-# Development Plan: AI Agent Data Access API
+# AI Agents Data API Implementation Plan
 
-## Phase 1: Core Infrastructure Setup ✅
+## ✅ Phase 1: Core Infrastructure Setup
+- ✅ Project setup with FastAPI and Poetry
+- ✅ Database integration (DuckDB)
+- ✅ Token management and authentication
+- ✅ Admin API implementation
 
-### 1.1 Project Setup (Week 1) ✅
-- Initialize Python project with FastAPI ✅
-- Set up development environment ✅
-  - Python 3.11 ✅
-  - Poetry for dependency management ✅
-  - Pre-commit hooks for code quality ✅
-  - Docker configuration ✅
-- Implement basic project structure ✅
-- Set up logging infrastructure ✅
+### Implementation Details:
+1. **Project Structure**:
+   - FastAPI application with Poetry dependency management
+   - Environment configuration with pydantic-settings
+   - Modular architecture with clear separation of concerns
 
-### 1.2 Database Integration (Week 1-2) ✅
-- Implement DuckDB connection management ✅
-- Create Snowflake to DuckDB data sync functionality ✅
-  - Table replication utilities ✅
-  - Schema synchronization ✅
-  - Incremental updates strategy ✅
-- Implement database connection pooling ✅
-- Add configuration management for database credentials ✅
+2. **Authentication System**:
+   - JWT-based authentication with Python-JOSE
+   - Token generation and validation
+   - Admin-only access control
+   - Secure password hashing
 
-## Phase 2: Authentication & Admin API (Week 2) ✅
+3. **Database Setup**:
+   - DuckDB integration for local data storage
+   - Connection management and pooling
+   - Schema initialization and management
+   - Type mapping and data validation
 
-### 2.1 Token Management System ✅
-- Implement token generation using JWT ✅
-  - Swarm tokens (shared across agents) ✅
-  - Agent tokens (unique per agent) ✅
-- Token storage in DuckDB ✅
-- Token validation middleware ✅
-- Token expiration and refresh logic ✅
+## ✅ Phase 2: Database Integration
+- ✅ Snowflake connection setup
+- ✅ Query execution and result handling
+- ✅ Data type mapping and conversion
+- ✅ Error handling and retries
 
-### 2.2 Admin API Implementation ✅
-- Create secure admin endpoints ✅
-  - Token management (CRUD operations) ✅
-  - Database management (table allowlist) ✅
-  - System monitoring and status ✅
-- Implement admin authentication ✅
-- Add audit logging for admin actions ✅
+### Implementation Details:
+1. **Snowflake Integration**:
+   - Secure connection management
+   - Query execution with error handling
+   - Batch processing support
+   - Schema and metadata retrieval
 
-## Phase 3: Core API Features (Week 3) ✅
+2. **Data Type Handling**:
+   - Comprehensive type mapping between systems
+   - NULL value handling
+   - Date/time format standardization
+   - Large result set management
 
-### 3.1 Data Access Layer ✅
-- Implement table listing and metadata ✅
-- Create data sampling functionality ✅
-  - First N rows ✅
-  - Random percentage sampling ✅
-- Add data profiling capabilities ✅
-- Implement query execution engine ✅
-  - Query validation ✅
-  - Asynchronous execution ✅
-  - Result caching ✅
+## ✅ Phase 3: Core API Features
+- ✅ Data access layer implementation
+- ✅ Query execution endpoints
+- ✅ Result format handling
+- ✅ Data export formats (CSV, JSON, Parquet)
 
-### 3.2 Data Export Formats ✅
-- Implement CSV export ✅
-- Implement Parquet export ✅
-- Add format conversion utilities ✅
-- Implement streaming responses for large datasets ✅
+### Implementation Details:
+1. **Query Processing**:
+   - Secure query validation
+   - Result pagination and streaming
+   - Memory-efficient processing
+   - Multiple output format support
 
-## Phase 4: Artefact Management (Week 3-4) ✅
+2. **Export Functionality**:
+   - CSV generation with proper escaping
+   - JSON formatting with schema
+   - Parquet file creation
+   - Compression options
 
-### 4.1 Artefact Storage System ✅
-- Design artefact tables in DuckDB ✅
-- Implement artefact CRUD operations ✅
-- Add metadata management ✅
-- Implement expiration mechanism ✅
-- Create cleanup routines for expired artefacts ✅
+## ✅ Phase 4: Artefact Management
+- ✅ Artefact storage implementation
+- ✅ Upload/download functionality
+- ✅ Artefact metadata tracking
+- ✅ Cleanup and maintenance
 
-### 4.2 Artefact API ✅
-- Implement artefact upload endpoint ✅
-- Create artefact retrieval endpoint ✅
-- Add artefact sharing capabilities ✅
-- Implement expiration extension endpoint ✅
+### Implementation Details:
+1. **Storage Management**:
+   - Local file system organization
+   - Metadata tracking in DuckDB
+   - Automatic cleanup of old files
+   - Space usage monitoring
 
-## Phase 5: Infrastructure & Deployment (Week 4) 🚧
+## ✅ Phase 5: Snowflake Sync Implementation
+- ✅ Table synchronization logic
+- ✅ Incremental sync support
+- ✅ Schema management
+- ✅ Error handling and recovery
 
-### 5.1 VM Setup
-- Provision Google Cloud VM
-  - Machine type: e2-medium (2 vCPU, 4GB RAM)
-  - Debian/Ubuntu based image
-  - 50GB SSD persistent disk
-- Configure networking
-  - Set up static IP
-  - Configure firewall rules
-  - Set up DNS
+### Implementation Details:
+1. **Sync Service**:
+   - Full and incremental sync strategies
+   - Schema validation and creation
+   - Batch processing with progress tracking
+   - Error handling and recovery
+   - Status tracking and reporting
 
-### 5.2 Security Setup
-- Install and configure Let's Encrypt
-  - Set up Certbot
-  - Configure auto-renewal
-- Implement HTTPS
-- Set up fail2ban
-- Configure UFW firewall
+2. **Schema Management**:
+   - Automatic schema detection
+   - Type mapping between systems
+   - Schema evolution handling
+   - Constraint preservation
 
-### 5.3 Deployment Pipeline
-- Create Docker deployment configuration
-- Set up CI/CD with GitHub Actions
-  - Automated testing
-  - Docker image building
-  - Deployment automation
-- Implement monitoring and logging
-- Create backup strategy
+## ✅ Phase 6: Async Task Processing
+- ✅ Celery integration with Redis
+- ✅ Task queues and routing
+- ✅ Monitoring and management
+- ✅ Error handling and retries
 
-## Phase 6: Testing & Documentation (Throughout) 🚧
+### Implementation Details:
+1. **Scheduled Cleanup (Celery Beat)**:
+   - Old jobs cleanup every 6 hours (keeping completed jobs for 24h, failed for 72h)
+   - Query results cleanup every 4 hours (keeping results for 24h)
+   - Stale jobs cleanup every 15 minutes (marking jobs as failed if running > 1h)
 
-### 6.1 Testing
-- Unit tests for all components
-- Integration tests
-- Load testing
-- Security testing
+2. **Retry Logic**:
+   - **Sync Tasks**:
+     - Retries for Snowflake operational and programming errors
+     - Max 3 retries with exponential backoff (max 10min delay)
+     - Custom failure handling with detailed error tracking
+   
+   - **Query Tasks**:
+     - Retries for DuckDB operational and programming errors
+     - Max 2 retries with exponential backoff (max 5min delay)
+     - Cleanup task with single retry for robustness
 
-### 6.2 Documentation
-- API documentation
-- Deployment guide
-- Development guide
-- Security documentation
+3. **Task Monitoring Endpoints** (`/api/v1/tasks/`):
+   - `/status/{task_id}`: Get detailed task status and results
+   - `/active`: List currently running tasks by queue
+   - `/queues`: Get statistics for each task queue
+   - `/workers`: Monitor Celery worker status and health
 
-## Implementation Details
+4. **Key Features**:
+   - Automatic retry for transient failures
+   - Exponential backoff with jitter for better retry distribution
+   - Detailed error tracking and status updates
+   - Comprehensive monitoring capabilities
+   - Regular cleanup of old data
 
-### Completed Features
+## ⚠️ Phase 7: Testing and Documentation
+- [ ] Unit tests implementation
+- [ ] Integration tests
+- [ ] API documentation
+- [ ] Deployment guide
 
-1. **Core Infrastructure**
-   - FastAPI application setup with CORS and health check
-   - Poetry-based dependency management
-   - Environment configuration with pydantic
-   - DuckDB and Snowflake connection management
+## ⚠️ Phase 8: Infrastructure and Deployment
+- [ ] Docker containerization
+- [ ] Docker Compose setup
+- [ ] CI/CD pipeline
+- [ ] Monitoring and logging
 
-2. **Authentication System**
-   - JWT-based token management
-   - Swarm and Agent token support
-   - Admin token validation
-   - Token expiration handling
+## Completed Features
 
-3. **Data Access Layer**
-   - Table metadata management
-   - Data sampling (first N rows and random sampling)
-   - Asynchronous query execution
-   - Multiple export formats (JSON, CSV, Parquet)
+### Core Infrastructure
+- ✅ FastAPI application setup with Poetry
+- ✅ Environment configuration with pydantic-settings
+- ✅ JWT-based authentication system
+- ✅ Admin access control
+- ✅ DuckDB integration
 
-4. **Artifact Management**
-   - File-based storage with DuckDB metadata
-   - Support for multiple formats
-   - Automatic expiration and cleanup
-   - Tag-based organization
-   - Access control based on swarm tokens
+### Data Access
+- ✅ Snowflake connection management
+- ✅ Query execution and validation
+- ✅ Result format handling (CSV, JSON, Parquet)
+- ✅ Data type mapping and conversion
 
-5. **Snowflake Integration**
-   - Schema synchronization
-   - Type mapping between Snowflake and DuckDB
-   - Incremental and full sync strategies
-   - Batch processing for large tables
-   - Sync status tracking
+### Synchronization
+- ✅ Full and incremental sync strategies
+- ✅ Schema validation and creation
+- ✅ Batch processing with progress tracking
+- ✅ Status monitoring and reporting
 
-### Pending Tasks
+### Async Processing
+- ✅ Celery integration with Redis
+- ✅ Task queues and routing
+- ✅ Automatic retries with backoff
+- ✅ Comprehensive monitoring
+- ✅ Scheduled maintenance
 
-1. **Async Processing**
-   - Implement proper async task queue
-   - Add background job management
-   - Improve error handling and retries
+## Pending Tasks
+1. Testing and Documentation
+   - Unit and integration tests
+   - API documentation
+   - Deployment guide
 
-2. **Data Profiling**
-   - Implement advanced profiling with pandas-profiling
-   - Add column-level statistics
-   - Create profile caching mechanism
-
-3. **Testing**
-   - Add comprehensive test suite
-   - Set up CI/CD pipeline
-   - Implement load testing
-
-4. **Deployment**
-   - Set up production environment
-   - Configure monitoring and logging
-   - Implement backup strategy
-
-## Timeline Summary
-- Week 1: Core Infrastructure
-- Week 2: Authentication & Admin API
-- Week 3: Core API Features & Start Artefact Management
-- Week 4: Complete Artefact Management & Deployment
-
-## Initial Dependencies
-```toml
-[tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "^0.109.0"
-uvicorn = "^0.27.0"
-duckdb = "^0.9.2"
-snowflake-connector-python = "^3.6.0"
-python-jose = {extras = ["cryptography"], version = "^3.3.0"}
-python-multipart = "^0.0.6"
-pandas = "^2.2.0"
-pyarrow = "^14.0.2"
-pydantic = "^2.6.0"
-pydantic-settings = "^2.1.0"
-python-dotenv = "^1.0.0"
-``` 
+2. Infrastructure
+   - Docker containerization
+   - CI/CD pipeline setup
+   - Production deployment
+   - Monitoring and logging 
