@@ -35,12 +35,12 @@ class AdminService:
         # Allowed tables
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS allowed_tables (
-                table_id VARCHAR PRIMARY KEY,
+                table_id UUID PRIMARY KEY,
                 table_name VARCHAR NOT NULL,
                 schema_name VARCHAR NOT NULL,
                 source VARCHAR NOT NULL DEFAULT 'snowflake',
                 status VARCHAR NOT NULL,
-                created_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (schema_name, table_name)
             )
         """)
@@ -84,10 +84,10 @@ class AdminService:
         if table_data.action == TableAction.ADD:
             self.db.execute("""
                 INSERT INTO allowed_tables (
-                    table_id, table_name, schema_name, status, created_at
+                    table_id, table_name, schema_name, source, status
                 )
-                VALUES (?, ?, ?, 'active', ?)
-            """, [table_id, table_data.table_name, table_data.schema_name, datetime.utcnow()])
+                VALUES (?, ?, ?, 'snowflake', 'active')
+            """, [table_id, table_data.table_name, table_data.schema_name])
             status = "active"
         else:
             self.db.execute("""

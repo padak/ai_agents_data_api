@@ -23,6 +23,16 @@ class SyncService:
         self._snowflake = None
         self._duckdb = None
 
+    def is_table_allowed(self, table_name: str, schema_name: str) -> bool:
+        """Check if table sync is allowed"""
+        result = self.duckdb.execute("""
+            SELECT status 
+            FROM allowed_tables 
+            WHERE table_name = ? AND schema_name = ?
+        """, [table_name, schema_name]).fetchone()
+        
+        return result is not None and result[0] == 'active'
+
     @property
     def snowflake(self):
         if self._snowflake is None:
@@ -41,33 +51,76 @@ class SyncService:
 
     def _init_tables(self):
         """Initialize required tables for sync management"""
+        # Create allowed_tables first
         self.duckdb.execute("""
-            CREATE TABLE IF NOT EXISTS sync_jobs (
-                job_id VARCHAR PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS allowed_tables (
+                table_id UUID PRIMARY KEY,
                 table_name VARCHAR NOT NULL,
-                sync_type VARCHAR NOT NULL,
+                schema_name VARCHAR NOT NULL,
+                source VARCHAR NOT NULL DEFAULT 'snowflake',
                 status VARCHAR NOT NULL,
-                error TEXT,
-                stats JSON,
-                created_at TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP NOT NULL
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(schema_name, table_name)
             )
         """)
 
-        # Table sync status
+        # Create sync_jobs with foreign key to allowed_tables
         self.duckdb.execute("""
-            CREATE TABLE IF NOT EXISTS table_sync_status (
-                table_id VARCHAR PRIMARY KEY,
-                last_sync_id VARCHAR,
-                last_sync_status VARCHAR,
-                last_sync_at TIMESTAMP,
-                last_error TEXT,
-                row_count INTEGER,
-                size_bytes INTEGER,
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id),
-                FOREIGN KEY (last_sync_id) REFERENCES sync_jobs(sync_id)
+            CREATE TABLE IF NOT EXISTS sync_jobs (
+                job_id UUID PRIMARY KEY,
+                table_id UUID NOT NULL,
+                strategy VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                error VARCHAR,
+                stats JSON,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                rows_synced INTEGER DEFAULT 0,
+                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
             )
         """)
+
+        # Create table_sync_status with foreign keys to both tables
+        self.duckdb.execute("""
+            CREATE TABLE IF NOT EXISTS table_sync_status (
+                table_id UUID NOT NULL,
+                last_sync_id UUID,
+                last_sync_status VARCHAR,
+                last_sync_at TIMESTAMP,
+                last_error VARCHAR,
+                row_count INTEGER DEFAULT 0,
+                size_bytes INTEGER DEFAULT 0,
+                PRIMARY KEY (table_id),
+                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id),
+                FOREIGN KEY (last_sync_id) REFERENCES sync_jobs(job_id)
+            )
+        """)
+
+    async def register_table(self, table_name: str, schema_name: str) -> Dict[str, Any]:
+        """Register a table for syncing (admin only)"""
+        # Verify table exists in Snowflake
+        try:
+            self.snowflake.fetch_schema(table_name, schema_name)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Table {schema_name}.{table_name} not found in Snowflake: {str(e)}"
+            )
+
+        table_id = uuid.uuid4()
+        
+        # Register table
+        self.duckdb.execute("""
+            INSERT INTO allowed_tables (table_id, table_name, schema_name, source, status)
+            VALUES (?, ?, ?, 'snowflake', 'active')
+        """, [table_id, table_name, schema_name])
+
+        return {
+            "table_id": str(table_id),
+            "table_name": table_name,
+            "schema_name": schema_name,
+            "status": "active"
+        }
 
     async def _create_duckdb_table(
         self,
@@ -151,30 +204,30 @@ class SyncService:
     ) -> SyncResponse:
         """Start a table synchronization"""
         config = config or SyncConfig()
-        
-        # Get table ID
-        result = self.duckdb.execute("""
-            SELECT table_id
-            FROM allowed_tables
-            WHERE table_name = ? AND schema_name = ? AND status = 'active'
-        """, [sync_request.table_name, sync_request.schema_name]).fetchone()
 
-        if not result:
+        # Check if table is allowed
+        if not self.is_table_allowed(sync_request.schema_name, sync_request.table_name):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Table {sync_request.schema_name}.{sync_request.table_name} not found or not allowed"
             )
 
-        table_id = result[0]
-        sync_id = str(uuid.uuid4())
+        # Get table_id from allowed_tables
+        result = self.duckdb.execute("""
+            SELECT table_id FROM allowed_tables 
+            WHERE schema_name = ? AND table_name = ? AND status = 'active'
+        """, [sync_request.schema_name, sync_request.table_name]).fetchone()
+
+        table_id = result[0]  # This is already a UUID from DuckDB
+        job_id = uuid.uuid4()  # Create a new UUID object
         started_at = datetime.utcnow()
 
         # Create sync job
         self.duckdb.execute("""
             INSERT INTO sync_jobs (
-                sync_id, table_id, strategy, status, started_at
+                job_id, table_id, strategy, status, started_at
             ) VALUES (?, ?, ?, ?, ?)
-        """, [sync_id, table_id, sync_request.strategy, SyncStatus.RUNNING, started_at])
+        """, [job_id, table_id, sync_request.strategy, SyncStatus.RUNNING, started_at])
 
         try:
             # Get Snowflake schema
@@ -236,8 +289,8 @@ class SyncService:
             self.duckdb.execute("""
                 UPDATE sync_jobs
                 SET status = ?, completed_at = ?, stats = ?
-                WHERE sync_id = ?
-            """, [SyncStatus.COMPLETED, completed_at, stats, sync_id])
+                WHERE job_id = ?
+            """, [SyncStatus.COMPLETED, completed_at, stats, job_id])
 
             # Update table sync status
             table_stats = self.snowflake.fetch_table_stats(
@@ -256,13 +309,13 @@ class SyncService:
                     row_count = excluded.row_count,
                     size_bytes = excluded.size_bytes
             """, [
-                table_id, sync_id, SyncStatus.COMPLETED,
+                table_id, job_id, SyncStatus.COMPLETED,
                 completed_at, table_stats["row_count"],
                 table_stats["size_bytes"]
             ])
 
             return SyncResponse(
-                sync_id=sync_id,
+                job_id=str(job_id),  # Convert UUID to string for JSON response
                 table_name=sync_request.table_name,
                 schema_name=sync_request.schema_name,
                 strategy=sync_request.strategy,
@@ -277,8 +330,8 @@ class SyncService:
             self.duckdb.execute("""
                 UPDATE sync_jobs
                 SET status = ?, completed_at = ?, error = ?
-                WHERE sync_id = ?
-            """, [SyncStatus.FAILED, datetime.utcnow(), error_msg, sync_id])
+                WHERE job_id = ?
+            """, [SyncStatus.FAILED, datetime.utcnow(), error_msg, job_id])
 
             self.duckdb.execute("""
                 UPDATE table_sync_status
@@ -295,7 +348,7 @@ class SyncService:
         """Get the status of a sync job"""
         result = self.duckdb.execute("""
             SELECT 
-                j.sync_id,
+                j.job_id,
                 t.table_name,
                 t.schema_name,
                 j.strategy,
@@ -306,7 +359,7 @@ class SyncService:
                 j.stats
             FROM sync_jobs j
             JOIN allowed_tables t ON j.table_id = t.table_id
-            WHERE j.sync_id = ?
+            WHERE j.job_id = ?
         """, [sync_id]).fetchone()
 
         if not result:

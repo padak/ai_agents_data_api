@@ -70,4 +70,18 @@ class TableSyncStatus(BaseModel):
     last_sync_at: Optional[datetime] = None
     last_error: Optional[str] = None
     row_count: int = 0
-    size_bytes: int = 0 
+    size_bytes: int = 0
+
+
+class TableRegistration(BaseModel):
+    """Table registration request"""
+    table_name: str
+    schema_name: str
+
+
+class TableRegistrationResponse(BaseModel):
+    """Table registration response"""
+    table_id: str
+    table_name: str
+    schema_name: str
+    status: str 

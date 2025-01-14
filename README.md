@@ -105,3 +105,68 @@ For detailed development instructions and documentation, please refer to the [De
 ## License
 
 MIT License - see the [LICENSE](LICENSE) file for details 
+
+## API Usage Examples
+
+### Authentication
+```bash
+# Get admin token
+curl -X POST "http://localhost:8000/api/v1/auth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=your_admin_username&password=your_admin_password"
+
+# Response:
+{
+  "access_token": "eyJhbGciOiJ...",
+  "token_type": "bearer",
+  "expires_in": 1800.0
+}
+```
+
+### Table Management
+```bash
+# List registered tables
+curl -X GET "http://localhost:8000/api/v1/sync/tables" \
+  -H "Authorization: Bearer your_access_token"
+
+# Register a new table
+curl -X POST "http://localhost:8000/api/v1/sync/tables/register" \
+  -H "Authorization: Bearer your_access_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_name": "your_table",
+    "schema_name": "your_schema"
+  }'
+
+# Start table synchronization
+curl -X POST "http://localhost:8000/api/v1/sync/start" \
+  -H "Authorization: Bearer your_access_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_name": "your_table",
+    "schema_name": "your_schema",
+    "strategy": "full"
+  }'
+
+# Check sync status
+curl -X GET "http://localhost:8000/api/v1/sync/jobs/{job_id}" \
+  -H "Authorization: Bearer your_access_token"
+```
+
+### Query Execution
+```bash
+# Execute a query
+curl -X POST "http://localhost:8000/api/v1/queries/execute" \
+  -H "Authorization: Bearer your_access_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT * FROM your_table LIMIT 10",
+    "output_format": "csv"
+  }'
+
+# Check query status
+curl -X GET "http://localhost:8000/api/v1/queries/jobs/{query_id}" \
+  -H "Authorization: Bearer your_access_token"
+```
+
+For more details about the API endpoints and their parameters, please refer to the [API Documentation](docs/api.md). 

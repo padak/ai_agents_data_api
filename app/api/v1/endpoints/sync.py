@@ -1,53 +1,64 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel
 
 from app.api.deps import get_current_admin_user
-from app.schemas.sync import SyncRequest, SyncResponse, SyncConfig, TableSyncStatus
+from app.schemas.sync import SyncRequest, SyncResponse, SyncConfig, TableSyncStatus, TableRegistration, TableRegistrationResponse
 from app.services.sync import SyncService
 from app.tasks.sync import sync_table
+from app.db.snowflake import SnowflakeClient
 
 router = APIRouter()
 sync_service = SyncService()
 
 
+class TableInfo(BaseModel):
+    table_name: str
+    row_count: int
+    size_bytes: int
+    last_modified: str
+
+
+@router.get("/tables/{schema_name}", response_model=List[TableInfo])
+async def list_tables(
+    schema_name: str,
+    _=Depends(get_current_admin_user)
+):
+    """List all tables in the specified schema"""
+    client = SnowflakeClient()
+    try:
+        tables = client.list_tables(schema_name)
+        return [
+            TableInfo(
+                table_name=table[0],
+                row_count=table[1] or 0,
+                size_bytes=table[2] or 0,
+                last_modified=str(table[3]) if table[3] else None
+            )
+            for table in tables
+        ]
+    finally:
+        client.close()
+
+
+@router.post("/tables/register", response_model=TableRegistrationResponse)
+async def register_table(
+    request: TableRegistration,
+    _: str = Depends(get_current_admin_user)
+) -> TableRegistrationResponse:
+    """Register a table for syncing (admin only)"""
+    result = await sync_service.register_table(request.table_name, request.schema_name)
+    return TableRegistrationResponse(**result)
+
+
 @router.post("/start", response_model=SyncResponse)
 async def start_sync(
     request: SyncRequest,
-    config: Optional[SyncConfig] = None,
-    _=Depends(get_current_admin_user)
-):
-    """Start a table synchronization process"""
-    # Validate table access
-    if not sync_service.is_table_allowed(request.table_name, request.schema_name):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Table sync not allowed"
-        )
-
-    # Create sync job
-    sync_id = sync_service.create_sync_job(
-        table_name=request.table_name,
-        schema_name=request.schema_name,
-        strategy=request.strategy,
-        config=config
-    )
-
-    # Start async task
-    task = sync_table.delay(
-        sync_id=sync_id,
-        table_name=request.table_name,
-        schema_name=request.schema_name,
-        strategy=request.strategy,
-        incremental_key=config.incremental_key if config else None,
-        filter_condition=config.filter_condition if config else None,
-        batch_size=config.batch_size if config else 10000
-    )
-
-    return {
-        "sync_id": sync_id,
-        "task_id": task.id,
-        "status": "pending"
-    }
+    config: SyncConfig = None,
+    _: str = Depends(get_current_admin_user)
+) -> SyncResponse:
+    """Start a table synchronization"""
+    return await sync_service.start_sync(request, config)
 
 
 @router.get("/jobs/{sync_id}", response_model=SyncResponse)

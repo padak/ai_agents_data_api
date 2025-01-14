@@ -46,7 +46,7 @@ class DataService:
         # Table metadata
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS table_metadata (
-                table_id VARCHAR PRIMARY KEY,
+                table_id UUID PRIMARY KEY,
                 table_name VARCHAR NOT NULL,
                 schema_name VARCHAR NOT NULL,
                 source VARCHAR NOT NULL,
@@ -62,7 +62,7 @@ class DataService:
         # Table tags
         self.db.execute("""
             CREATE TABLE IF NOT EXISTS table_tags (
-                table_id VARCHAR NOT NULL,
+                table_id UUID NOT NULL,
                 tag VARCHAR NOT NULL,
                 PRIMARY KEY (table_id, tag),
                 FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
