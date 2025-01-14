@@ -19,6 +19,9 @@ pyarrow = "^14.0.2"
 pydantic = "^2.6.0"
 pydantic-settings = "^2.1.0"
 python-dotenv = "^1.0.0"
+celery = "^5.3.6"
+redis = "^5.0.1"
+flower = "^2.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
