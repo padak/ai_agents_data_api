@@ -122,11 +122,85 @@ This document outlines the step-by-step process for syncing data from Snowflake 
 
 3. **Data Transfer**:
    - For full sync:
-     - Clears existing data
-     - Fetches all data in batches of 10,000 rows
+     1. Count total rows in Snowflake:
+        ```sql
+        SELECT COUNT(*) 
+        FROM "WORKSPACE_833213390"."data"
+        ```
+     
+     2. Clear existing data in DuckDB:
+        ```sql
+        DELETE FROM WORKSPACE_833213390.data
+        ```
+     
+     3. Fetch data in batches (default 10,000 rows per batch):
+        ```sql
+        SELECT *
+        FROM "WORKSPACE_833213390"."data"
+        LIMIT 10000 OFFSET 0
+        ```
+     
+     4. Convert Snowflake cursor to pandas DataFrame
+     
+     5. Register DataFrame in DuckDB:
+        ```sql
+        -- The DataFrame is registered as a temporary table 'temp_df'
+        INSERT INTO WORKSPACE_833213390.data
+        SELECT * FROM temp_df
+        ```
+
    - For incremental sync:
-     - Gets last synced value
-     - Fetches only new/modified data
+     1. Get last synced value from previous successful sync:
+        ```sql
+        SELECT stats
+        FROM sync_jobs
+        WHERE table_id = ? 
+        AND status = 'completed'
+        ORDER BY completed_at DESC
+        LIMIT 1
+        ```
+     
+     2. Extract last_value from stats JSON (e.g., last timestamp or ID)
+     
+     3. Fetch only new/modified data:
+        ```sql
+        SELECT *
+        FROM "WORKSPACE_833213390"."data"
+        WHERE "incremental_key" > 'last_value'
+        LIMIT 10000
+        ```
+     
+     4. Convert and insert data same as full sync
+
+   - Additional Features:
+     - Optional WHERE clause filtering:
+       ```sql
+       -- If filter_condition is provided:
+       SELECT *
+       FROM "WORKSPACE_833213390"."data"
+       WHERE filter_condition
+       LIMIT 10000
+       ```
+     
+     - Progress tracking:
+       - Total rows to process is known from initial count
+       - Batch processing allows progress monitoring
+       - Stats are updated in sync_jobs table:
+         ```json
+         {
+           "rows_processed": 10000,
+           "total_rows": 50000,
+           "table_stats": {
+             "row_count": 50000,
+             "size_bytes": 1048576
+           }
+         }
+         ```
+
+     - Error recovery:
+       - Each batch is processed independently
+       - Failed jobs can be retried
+       - Sync status and progress are preserved
 
 4. **Status Tracking**:
    - Updates sync job status in `sync_jobs` table
