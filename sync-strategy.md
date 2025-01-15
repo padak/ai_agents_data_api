@@ -96,21 +96,15 @@ This document outlines the step-by-step process for syncing data from Snowflake 
 ## What Happens During Sync
 
 1. **Schema Validation**:
-   - Fetches schema from Snowflake:
+   - Fetches schema from Snowflake using DESC TABLE:
      ```sql
-     SELECT 
-         column_name,
-         data_type,
-         character_maximum_length,
-         numeric_precision,
-         numeric_scale,
-         is_nullable
-     FROM KEBOOLA_33.information_schema.columns
-     WHERE table_catalog = 'KEBOOLA_33'
-     AND table_name = UPPER(?)
-     AND table_schema = UPPER(?)
-     ORDER BY ordinal_position
+     DESC TABLE "WORKSPACE_833213390"."data"
      ```
+   - Parses the output to extract:
+     - Column name
+     - Data type (with precision/scale for numeric types)
+     - Nullability
+     - Character length for string types
 
 2. **Table Creation**:
    - Creates DuckDB table with mapped schema
