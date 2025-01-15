@@ -109,63 +109,60 @@ MIT License - see the [LICENSE](LICENSE) file for details
 ## API Usage Examples
 
 ### Authentication
+
 ```bash
 # Get admin token
 curl -X POST "http://localhost:8000/api/v1/auth/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=your_admin_username&password=your_admin_password"
-
-# Response:
-{
-  "access_token": "eyJhbGciOiJ...",
-  "token_type": "bearer",
-  "expires_in": 1800.0
-}
+  -d "username=admin&password=admin_test_password"
 ```
 
-### Table Management
-```bash
-# List registered tables
-curl -X GET "http://localhost:8000/api/v1/sync/tables" \
-  -H "Authorization: Bearer your_access_token"
+### Sync Operations
 
-# Register a new table
+1. List Tables in Schema:
+```bash
+curl -X GET "http://localhost:8000/api/v1/sync/tables/WORKSPACE_833213390" \
+  -H "Authorization: Bearer your_access_token"
+```
+
+2. Register a Table:
+```bash
 curl -X POST "http://localhost:8000/api/v1/sync/tables/register" \
   -H "Authorization: Bearer your_access_token" \
   -H "Content-Type: application/json" \
   -d '{
-    "table_name": "your_table",
-    "schema_name": "your_schema"
+    "table_name": "data",
+    "schema_name": "WORKSPACE_833213390"
   }'
+```
 
-# Start table synchronization
+3. Remove a Table:
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/sync/tables/WORKSPACE_833213390/data" \
+  -H "Authorization: Bearer your_access_token"
+```
+
+4. Start Table Sync:
+```bash
 curl -X POST "http://localhost:8000/api/v1/sync/start" \
   -H "Authorization: Bearer your_access_token" \
   -H "Content-Type: application/json" \
   -d '{
-    "table_name": "your_table",
-    "schema_name": "your_schema",
+    "table_name": "data",
+    "schema_name": "WORKSPACE_833213390",
     "strategy": "full"
   }'
+```
 
-# Check sync status
-curl -X GET "http://localhost:8000/api/v1/sync/jobs/{job_id}" \
+5. Check Sync Job Status:
+```bash
+curl -X GET "http://localhost:8000/api/v1/sync/jobs/your_sync_id" \
   -H "Authorization: Bearer your_access_token"
 ```
 
-### Query Execution
+6. Check Table Sync Status:
 ```bash
-# Execute a query
-curl -X POST "http://localhost:8000/api/v1/queries/execute" \
-  -H "Authorization: Bearer your_access_token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "SELECT * FROM your_table LIMIT 10",
-    "output_format": "csv"
-  }'
-
-# Check query status
-curl -X GET "http://localhost:8000/api/v1/queries/jobs/{query_id}" \
+curl -X GET "http://localhost:8000/api/v1/sync/tables/WORKSPACE_833213390/data/status" \
   -H "Authorization: Bearer your_access_token"
 ```
 

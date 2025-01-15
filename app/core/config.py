@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str
     SECRET_KEY: str
     ADMIN_TOKEN: str
+    ADMIN_USERNAME: str
+    ADMIN_PASSWORD: str
 
     # Database Settings
     DUCKDB_PATH: str

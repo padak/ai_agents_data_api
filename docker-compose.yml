@@ -34,7 +34,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "celery", "-A", "app.core.celery", "inspect", "ping"]
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep 'celery worker' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -51,7 +51,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "celery", "-A", "app.core.celery", "inspect", "ping"]
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep 'celery beat' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
