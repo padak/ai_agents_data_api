@@ -122,31 +122,44 @@ This document outlines the step-by-step process for syncing data from Snowflake 
 
 3. **Data Transfer**:
    - For full sync:
-     1. Count total rows in Snowflake:
+     1. Create temporary stage in Snowflake:
         ```sql
-        SELECT COUNT(*) 
-        FROM "WORKSPACE_833213390"."data"
+        CREATE TEMPORARY STAGE IF NOT EXISTS TEMP_STAGE_{uuid}
+        FILE_FORMAT = (TYPE = 'PARQUET')
         ```
      
-     2. Clear existing data in DuckDB:
+     2. Export data to stage using COPY INTO:
         ```sql
-        DELETE FROM WORKSPACE_833213390.data
+        COPY INTO @TEMP_STAGE_{uuid}/data_{uuid}.parquet
+        FROM (
+            SELECT *
+            FROM "WORKSPACE_833213390"."data"
+        )
+        FILE_FORMAT = (TYPE = 'PARQUET')
+        OVERWRITE = TRUE
+        HEADER = TRUE
         ```
      
-     3. Fetch data in batches (default 10,000 rows per batch):
+     3. Download staged file using GET command:
         ```sql
-        SELECT *
-        FROM "WORKSPACE_833213390"."data"
-        LIMIT 10000 OFFSET 0
+        GET @TEMP_STAGE_{uuid}/data_{uuid}.parquet
+        FILE = '/path/to/local/file.parquet'
+        OVERWRITE = TRUE
         ```
      
-     4. Convert Snowflake cursor to pandas DataFrame
-     
-     5. Register DataFrame in DuckDB:
+     4. Load Parquet file into DuckDB:
         ```sql
-        -- The DataFrame is registered as a temporary table 'temp_df'
+        -- Clear existing data
+        DELETE FROM WORKSPACE_833213390.data;
+        
+        -- Import from Parquet
         INSERT INTO WORKSPACE_833213390.data
-        SELECT * FROM temp_df
+        SELECT * FROM read_parquet('/path/to/local/file.parquet');
+        ```
+     
+     5. Cleanup:
+        ```sql
+        DROP STAGE IF EXISTS TEMP_STAGE_{uuid}
         ```
 
    - For incremental sync:
@@ -160,47 +173,57 @@ This document outlines the step-by-step process for syncing data from Snowflake 
         LIMIT 1
         ```
      
-     2. Extract last_value from stats JSON (e.g., last timestamp or ID)
-     
-     3. Fetch only new/modified data:
+     2. Export only new/modified data to stage:
         ```sql
-        SELECT *
-        FROM "WORKSPACE_833213390"."data"
-        WHERE "incremental_key" > 'last_value'
-        LIMIT 10000
+        COPY INTO @TEMP_STAGE_{uuid}/data_{uuid}.parquet
+        FROM (
+            SELECT *
+            FROM "WORKSPACE_833213390"."data"
+            WHERE "incremental_key" > 'last_value'
+        )
+        FILE_FORMAT = (TYPE = 'PARQUET')
+        OVERWRITE = TRUE
+        HEADER = TRUE
         ```
      
-     4. Convert and insert data same as full sync
+     3. Download and import same as full sync
+
+   - Benefits of this approach:
+     - Efficient for large datasets (millions of rows)
+     - Single COPY operation instead of multiple SELECT queries
+     - Compressed Parquet format reduces network transfer
+     - DuckDB can efficiently read Parquet files
+     - Automatic cleanup of temporary stages
 
    - Additional Features:
      - Optional WHERE clause filtering:
        ```sql
-       -- If filter_condition is provided:
-       SELECT *
-       FROM "WORKSPACE_833213390"."data"
-       WHERE filter_condition
-       LIMIT 10000
+       COPY INTO @TEMP_STAGE_{uuid}/data_{uuid}.parquet
+       FROM (
+           SELECT *
+           FROM "WORKSPACE_833213390"."data"
+           WHERE filter_condition
+       )
        ```
      
      - Progress tracking:
-       - Total rows to process is known from initial count
-       - Batch processing allows progress monitoring
+       - COPY INTO returns exact row count
        - Stats are updated in sync_jobs table:
          ```json
          {
-           "rows_processed": 10000,
-           "total_rows": 50000,
+           "rows_processed": 22241866,
+           "total_rows": 22241866,
            "table_stats": {
-             "row_count": 50000,
+             "row_count": 22241866,
              "size_bytes": 1048576
            }
          }
          ```
 
-     - Error recovery:
-       - Each batch is processed independently
-       - Failed jobs can be retried
-       - Sync status and progress are preserved
+     - Error handling:
+       - Atomic COPY operation
+       - Automatic stage cleanup
+       - Failed transfers can be retried
 
 4. **Status Tracking**:
    - Updates sync job status in `sync_jobs` table

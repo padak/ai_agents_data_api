@@ -2,6 +2,7 @@ from functools import lru_cache
 import snowflake.connector
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import SnowflakeCursor
+import uuid
 
 from app.core.config import settings
 
@@ -176,3 +177,85 @@ class SnowflakeClient:
     def close(self):
         """Close the connection"""
         self.conn.close()
+
+    def create_stage(self, stage_name: str) -> None:
+        """Create a temporary stage if it doesn't exist"""
+        self.execute(f"""
+            CREATE TEMPORARY STAGE IF NOT EXISTS {stage_name}
+            FILE_FORMAT = (TYPE = 'PARQUET')
+        """)
+
+    def export_to_stage(
+        self,
+        table_name: str,
+        schema_name: str,
+        stage_name: str,
+        file_name: str,
+        where_clause: str = None
+    ) -> int:
+        """Export table data to stage using COPY INTO"""
+        query = f"""
+            COPY INTO @{stage_name}/{file_name}
+            FROM (
+                SELECT *
+                FROM "{schema_name}"."{table_name}"
+                {f'WHERE {where_clause}' if where_clause else ''}
+            )
+            FILE_FORMAT = (TYPE = 'PARQUET')
+            OVERWRITE = TRUE
+            HEADER = TRUE
+        """
+        cursor = self.execute(query)
+        result = cursor.fetchone()
+        return result[0] if result else 0  # Return number of rows copied
+
+    def get_staged_file(
+        self,
+        stage_name: str,
+        file_name: str,
+        local_path: str
+    ) -> None:
+        """Download staged file using GET command"""
+        cursor = self.execute(f"""
+            GET @{stage_name}/{file_name}
+            FILE = '{local_path}'
+            OVERWRITE = TRUE
+        """)
+        
+    def cleanup_stage(self, stage_name: str) -> None:
+        """Remove the temporary stage"""
+        self.execute(f"DROP STAGE IF EXISTS {stage_name}")
+
+    def fetch_data_via_stage(
+        self,
+        table_name: str,
+        schema_name: str,
+        local_path: str,
+        where_clause: str = None
+    ) -> tuple[str, int]:
+        """Fetch data using stage and GET command"""
+        try:
+            # Create unique stage name
+            stage_name = f"TEMP_STAGE_{uuid.uuid4().hex}"
+            file_name = f"data_{uuid.uuid4().hex}.parquet"
+            
+            # Create stage
+            self.create_stage(stage_name)
+            
+            # Export data to stage
+            row_count = self.export_to_stage(
+                table_name=table_name,
+                schema_name=schema_name,
+                stage_name=stage_name,
+                file_name=file_name,
+                where_clause=where_clause
+            )
+            
+            # Download file
+            self.get_staged_file(stage_name, file_name, local_path)
+            
+            return local_path, row_count
+            
+        finally:
+            # Cleanup stage
+            self.cleanup_stage(stage_name)
