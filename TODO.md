@@ -1,30 +1,28 @@
 # TODO List
 
-## Current Issues
+## In Progress
+- Debugging Snowflake to DuckDB sync process
+  - Created sync-strategy.md with direct Snowflake commands and test script
+  - Testing export process using stages and COPY INTO command
+  - Need to verify Parquet file transfer and DuckDB import
+  - Need to implement and test incremental sync logic
 
-### Database Schema Inconsistencies
-- Internal Server Errors occurring due to column definition mismatches between services
-- `created_at` column handling is inconsistent between `sync.py` and `admin.py`
-- Need to standardize the use of `CURRENT_TIMESTAMP` vs explicit timestamp passing
+## Completed
+- Set up FastAPI project structure
+- Implemented authentication with JWT
+- Added Snowflake connection handling
+- Added DuckDB integration
+- Created basic sync endpoints
+- Added table registration functionality
+- Implemented Docker containerization
+- Added Redis and Celery for async tasks
 
-### Tasks
-1. Fix schema inconsistencies:
-   - [ ] Standardize `created_at` column handling across all services
-   - [ ] Review and align all table creation SQL statements
-   - [ ] Add schema version tracking
-   - [ ] Implement schema migration system
-
-2. Error Handling Improvements:
-   - [ ] Add better error messages for database operations
-   - [ ] Implement proper error logging
-   - [ ] Add retry mechanisms for transient failures
-
-3. Testing:
-   - [ ] Add unit tests for database operations
-   - [ ] Add integration tests for API endpoints
-   - [ ] Add schema validation tests
-
-4. Documentation:
-   - [ ] Document all API endpoints with examples
-   - [ ] Add troubleshooting guide
-   - [ ] Create development setup guide 
+## Next Up
+- Implement proper error handling for sync process
+- Add progress tracking for large table syncs
+- Add data validation between source and target
+- Implement cleanup procedures for failed syncs
+- Add monitoring and logging improvements
+- Create admin dashboard for sync status
+- Add support for multiple sync strategies
+- Implement rate limiting and quotas 
