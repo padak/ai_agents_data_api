@@ -1,200 +1,174 @@
-# Snowflake to DuckDB Sync Strategy
+# Snowflake to DuckDB Sync Process
 
-This document describes the strategy for syncing data from Snowflake to DuckDB, specifically for the "data" table.
+This document outlines the step-by-step process for syncing data from Snowflake to DuckDB.
 
-## Overview
+## Prerequisites
 
-The sync process involves several steps:
-1. Schema validation and table registration
-2. Schema creation in DuckDB
-3. Data transfer
-4. Status tracking
+1. Environment variables must be set in `.env`:
+   - Snowflake connection details (account, user, password, warehouse, database, schema)
+   - DuckDB path and data directory
+   - Admin credentials for API access
 
-## Detailed Process
+2. Docker containers must be running:
+   ```bash
+   docker compose up -d
+   ```
 
-### 1. Schema Validation and Table Registration
+## Step 1: Authentication
 
-First, we verify the table exists in Snowflake and fetch its schema:
+1. Obtain an access token:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/auth/token" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=padak&password=L0ktibr4da"
+   ```
 
-```sql
--- Snowflake: Fetch table schema
-SELECT 
-    column_name,
-    data_type,
-    character_maximum_length,
-    numeric_precision,
-    numeric_scale,
-    is_nullable
-FROM information_schema.columns
-WHERE table_name = UPPER('data')
-AND table_schema = UPPER('WORKSPACE_833213390')
-ORDER BY ordinal_position
-```
+## Step 2: List Available Tables
 
-Then we register the table in DuckDB's metadata tables:
+1. List tables in your Snowflake schema:
+   ```bash
+   curl -X GET "http://localhost:8000/api/v1/sync/tables/WORKSPACE_833213390" \
+     -H "Authorization: Bearer your_access_token"
+   ```
 
-```sql
--- DuckDB: Register table in allowed_tables
-INSERT INTO allowed_tables (
-    table_id,
-    table_name,
-    schema_name,
-    source,
-    status
-) VALUES (
-    uuid(),
-    'data',
-    'WORKSPACE_833213390',
-    'snowflake',
-    'active'
-)
-```
+   This will return a list of tables with their statistics:
+   ```json
+   [
+     {
+       "table_name": "data",
+       "row_count": 1000,
+       "size_bytes": 51200,
+       "last_modified": "2024-01-15 12:00:00"
+     }
+   ]
+   ```
 
-### 2. Schema Creation in DuckDB
+## Step 3: Register a Table
 
-Based on the Snowflake schema, we create a corresponding table in DuckDB. The data types are mapped as follows:
+1. Register a table for syncing:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/sync/tables/register" \
+     -H "Authorization: Bearer your_access_token" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "table_name": "data",
+       "schema_name": "WORKSPACE_833213390"
+     }'
+   ```
 
-- NUMBER -> DOUBLE
-- FLOAT -> DOUBLE
-- VARCHAR -> VARCHAR
-- CHAR -> VARCHAR
-- TEXT -> VARCHAR
-- BOOLEAN -> BOOLEAN
-- DATE -> DATE
-- TIMESTAMP_NTZ -> TIMESTAMP
-- TIMESTAMP_TZ -> TIMESTAMP
-- TIMESTAMP_LTZ -> TIMESTAMP
+   This will:
+   - Verify the table exists in Snowflake
+   - Create an entry in DuckDB's `allowed_tables`
+   - Return a registration response:
+   ```json
+   {
+     "table_id": "uuid",
+     "table_name": "data",
+     "schema_name": "WORKSPACE_833213390",
+     "status": "active"
+   }
+   ```
 
-```sql
--- DuckDB: Create target table with mapped schema
-CREATE TABLE IF NOT EXISTS WORKSPACE_833213390.data (
-    -- columns will be dynamically generated based on Snowflake schema
-    -- example:
-    -- id DOUBLE,
-    -- name VARCHAR(255),
-    -- created_at TIMESTAMP
-)
-```
+## Step 4: Start the Sync Process
 
-### 3. Data Transfer
+1. Initiate a full table sync:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/sync/start" \
+     -H "Authorization: Bearer your_access_token" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "table_name": "data",
+       "schema_name": "WORKSPACE_833213390",
+       "strategy": "full"
+     }'
+   ```
 
-The data transfer process depends on the sync strategy (full or incremental):
+   For incremental sync, add incremental key:
+   ```json
+   {
+     "table_name": "data",
+     "schema_name": "WORKSPACE_833213390",
+     "strategy": "incremental",
+     "incremental_key": "updated_at"
+   }
+   ```
 
-#### Full Sync
+## What Happens During Sync
 
-```sql
--- Snowflake: Get total row count
-SELECT COUNT(*) 
-FROM "WORKSPACE_833213390"."data"
+1. **Schema Validation**:
+   - Fetches schema from Snowflake:
+     ```sql
+     SELECT 
+         column_name,
+         data_type,
+         character_maximum_length,
+         numeric_precision,
+         numeric_scale,
+         is_nullable
+     FROM KEBOOLA_33.information_schema.columns
+     WHERE table_catalog = 'KEBOOLA_33'
+     AND table_name = UPPER(?)
+     AND table_schema = UPPER(?)
+     ORDER BY ordinal_position
+     ```
 
--- Snowflake: Fetch data in batches
-SELECT *
-FROM "WORKSPACE_833213390"."data"
-LIMIT 10000 OFFSET 0  -- Batch size of 10,000 rows
+2. **Table Creation**:
+   - Creates DuckDB table with mapped schema
+   - Data types are mapped as follows:
+     - NUMBER -> DOUBLE
+     - FLOAT -> DOUBLE
+     - VARCHAR -> VARCHAR
+     - CHAR -> VARCHAR
+     - TEXT -> VARCHAR
+     - BOOLEAN -> BOOLEAN
+     - DATE -> DATE
+     - TIMESTAMP_NTZ -> TIMESTAMP
+     - TIMESTAMP_TZ -> TIMESTAMP
+     - TIMESTAMP_LTZ -> TIMESTAMP
 
--- DuckDB: Clear existing data
-DELETE FROM WORKSPACE_833213390.data
+3. **Data Transfer**:
+   - For full sync:
+     - Clears existing data
+     - Fetches all data in batches of 10,000 rows
+   - For incremental sync:
+     - Gets last synced value
+     - Fetches only new/modified data
 
--- DuckDB: Insert batch
-INSERT INTO WORKSPACE_833213390.data
-SELECT * FROM temp_df  -- temp_df is the pandas DataFrame registered in DuckDB
-```
-
-#### Incremental Sync
-
-For incremental sync, we use a timestamp or sequential ID column:
-
-```sql
--- Snowflake: Get last value from previous sync
-SELECT stats
-FROM sync_jobs
-WHERE table_id = ? AND status = 'completed'
-ORDER BY completed_at DESC
-LIMIT 1
-
--- Snowflake: Fetch only new/modified data
-SELECT *
-FROM "WORKSPACE_833213390"."data"
-WHERE "update_time" > 'last_sync_timestamp'
-LIMIT 10000
-
--- DuckDB: Insert new data
-INSERT INTO WORKSPACE_833213390.data
-SELECT * FROM temp_df
-```
-
-### 4. Status Tracking
-
-Throughout the process, we track sync status in two tables:
-
-```sql
--- DuckDB: Create sync job
-INSERT INTO sync_jobs (
-    job_id,
-    table_id,
-    strategy,
-    status,
-    started_at
-) VALUES (
-    uuid(),
-    table_id,
-    'full',
-    'running',
-    CURRENT_TIMESTAMP
-)
-
--- DuckDB: Update sync status on completion
-UPDATE sync_jobs
-SET 
-    status = 'completed',
-    completed_at = CURRENT_TIMESTAMP,
-    stats = json_object('rows_processed', rows_count, 'total_rows', total_rows)
-WHERE job_id = ?
-
--- DuckDB: Update table sync status
-INSERT INTO table_sync_status (
-    table_id,
-    job_id,
-    last_sync_status,
-    last_sync_at,
-    total_rows_synced
-) VALUES (?, ?, 'completed', CURRENT_TIMESTAMP, ?)
-ON CONFLICT (table_id, job_id) DO UPDATE SET
-    last_sync_status = excluded.last_sync_status,
-    last_sync_at = excluded.last_sync_at,
-    total_rows_synced = excluded.total_rows_synced
-```
+4. **Status Tracking**:
+   - Updates sync job status in `sync_jobs` table
+   - Updates table sync status in `table_sync_status`
+   - Records statistics like row count and size
 
 ## Error Handling
 
-If any step fails:
+If sync fails:
+1. Job status is updated to 'failed'
+2. Error message is recorded
+3. Table sync status is updated
+4. API returns error details
 
-1. The sync job status is updated to 'failed' with error details
-2. The table sync status is updated to reflect the failure
-3. The error is logged and returned to the API caller
-4. Any partial data changes are kept (not rolled back) to allow for investigation
+## Monitoring
 
-```sql
--- DuckDB: Update sync job on failure
-UPDATE sync_jobs
-SET 
-    status = 'failed',
-    completed_at = CURRENT_TIMESTAMP,
-    error_message = ?
-WHERE job_id = ?
+1. Check sync job status:
+   ```bash
+   curl -X GET "http://localhost:8000/api/v1/sync/status/{sync_id}" \
+     -H "Authorization: Bearer your_access_token"
+   ```
 
--- DuckDB: Update table sync status on failure
-UPDATE table_sync_status
-SET 
-    last_sync_status = 'failed',
-    last_error_message = ?
-WHERE table_id = ?
+2. View table sync history:
+   ```bash
+   curl -X GET "http://localhost:8000/api/v1/sync/tables/status/{table_id}" \
+     -H "Authorization: Bearer your_access_token"
+   ```
+
+## Cleanup
+
+To remove a table from sync:
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/sync/tables/WORKSPACE_833213390/data" \
+  -H "Authorization: Bearer your_access_token"
 ```
 
-## Performance Considerations
-
-1. Data is fetched in batches of 10,000 rows to manage memory usage
-2. Pandas DataFrames are used for efficient bulk inserts
-3. DuckDB's COPY command is used internally for fast data loading
-4. Indexes and constraints are maintained after data load
-5. The sync process is designed to be resumable in case of failure 
+This will:
+1. Mark the table as inactive in `allowed_tables`
+2. Preserve sync history for auditing 
