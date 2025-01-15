@@ -84,4 +84,4 @@ class TableRegistrationResponse(BaseModel):
     table_id: str
     table_name: str
     schema_name: str
-    status: str 
+    status: str = Field(description="Status of the table (active/inactive)") 
