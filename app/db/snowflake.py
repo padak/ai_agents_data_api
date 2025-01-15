@@ -3,6 +3,7 @@ import snowflake.connector
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import SnowflakeCursor
 import uuid
+from typing import Union, List
 
 from app.core.config import settings
 
@@ -40,21 +41,27 @@ class SnowflakeClient:
             # Connection is invalid, create a new one
             self.conn = get_snowflake_connection()
 
-    def execute(self, query: str, params: tuple = None) -> SnowflakeCursor:
+    def execute(self, query: str, params: Union[tuple, dict, None] = None) -> SnowflakeCursor:
         """Execute a query and return the cursor"""
         self._ensure_connection()
         cursor = self.conn.cursor()
-        if params is not None:
-            if not isinstance(params, tuple):
-                params = (params,)
+        
+        if isinstance(params, tuple):
+            # Convert tuple to list for Snowflake
+            cursor.execute(query, list(params))
+        elif isinstance(params, dict):
+            # Use dictionary parameters as is
             cursor.execute(query, params)
         else:
             cursor.execute(query)
+            
         return cursor
 
     def fetch_schema(self, table_name: str, schema_name: str) -> list:
         """Fetch table schema information"""
-        cursor = self.execute(f'DESC TABLE "{schema_name}"."{table_name}"')
+        cursor = self.execute(
+            'DESC TABLE "KEBOOLA_33"."WORKSPACE_833213390"."data"'
+        )
         
         # DESC TABLE returns: name, type, kind, null?, default, primary key, unique key, check, expression, comment
         # We need to transform this to match our expected format: name, type, max_length, precision, scale, nullable
@@ -119,21 +126,25 @@ class SnowflakeClient:
     ) -> tuple[SnowflakeCursor, int]:
         """Fetch data in batches"""
         # Get total count first
-        count_query = f"""
+        count_query = """
             SELECT COUNT(*) 
-            FROM "{schema_name}"."{table_name}"
-            {f'WHERE {where_clause}' if where_clause else ''}
+            FROM "KEBOOLA_33"."WORKSPACE_833213390"."data"
         """
+        if where_clause:
+            count_query += f" WHERE {where_clause}"
+            
         cursor = self.execute(count_query)
         total_rows = cursor.fetchone()[0]
 
         # Fetch batch
-        query = f"""
+        query = """
             SELECT *
-            FROM "{schema_name}"."{table_name}"
-            {f'WHERE {where_clause}' if where_clause else ''}
-            LIMIT {batch_size} OFFSET {offset}
+            FROM "KEBOOLA_33"."WORKSPACE_833213390"."data"
         """
+        if where_clause:
+            query += f" WHERE {where_clause}"
+        query += f" LIMIT {batch_size} OFFSET {offset}"
+        
         cursor = self.execute(query)
         return cursor, total_rows
 
@@ -158,21 +169,24 @@ class SnowflakeClient:
             where_clause=where_clause
         )
 
-    def list_tables(self, schema_name: str) -> list:
-        """List all tables in the specified schema"""
-        cursor = self.execute("""
-            SELECT 
-                table_name,
-                row_count,
-                bytes as size_bytes,
-                last_altered as last_modified
-            FROM KEBOOLA_33.information_schema.tables
-            WHERE table_catalog = 'KEBOOLA_33'
-            AND table_schema = ?
-            ORDER BY table_name
-        """, (schema_name,))
+    def list_tables(self, schema_name: str) -> List[tuple]:
+        """List tables in schema"""
+        cursor = self.execute(
+            'SHOW TABLES IN SCHEMA "KEBOOLA_33"."' + schema_name + '"'
+        )
         
-        return cursor.fetchall()
+        # SHOW TABLES returns: created_on, name, database_name, schema_name, kind, comment, cluster_by, rows, bytes, ...
+        # We need: table_name, row_count, size_bytes, last_modified
+        results = []
+        for row in cursor.fetchall():
+            results.append((
+                row[1],  # name
+                row[7],  # rows
+                row[8],  # bytes
+                row[0]   # created_on
+            ))
+        
+        return results
 
     def close(self):
         """Close the connection"""
@@ -180,10 +194,10 @@ class SnowflakeClient:
 
     def create_stage(self, stage_name: str) -> None:
         """Create a temporary stage if it doesn't exist"""
-        self.execute(f"""
-            CREATE TEMPORARY STAGE IF NOT EXISTS {stage_name}
+        self.execute("""
+            CREATE TEMPORARY STAGE IF NOT EXISTS ?
             FILE_FORMAT = (TYPE = 'PARQUET')
-        """)
+        """, (stage_name,))
 
     def export_to_stage(
         self,
@@ -194,18 +208,23 @@ class SnowflakeClient:
         where_clause: str = None
     ) -> int:
         """Export table data to stage using COPY INTO"""
-        query = f"""
-            COPY INTO @{stage_name}/{file_name}
+        query = """
+            COPY INTO @?/?
             FROM (
                 SELECT *
-                FROM "{schema_name}"."{table_name}"
-                {f'WHERE {where_clause}' if where_clause else ''}
+                FROM "KEBOOLA_33"."WORKSPACE_833213390"."data"
+                {where_clause}
             )
             FILE_FORMAT = (TYPE = 'PARQUET')
             OVERWRITE = TRUE
             HEADER = TRUE
         """
-        cursor = self.execute(query)
+        if where_clause:
+            query = query.format(where_clause=f" WHERE {where_clause}")
+        else:
+            query = query.format(where_clause="")
+            
+        cursor = self.execute(query, (stage_name, file_name))
         result = cursor.fetchone()
         return result[0] if result else 0  # Return number of rows copied
 
@@ -216,15 +235,14 @@ class SnowflakeClient:
         local_path: str
     ) -> None:
         """Download staged file using GET command"""
-        cursor = self.execute(f"""
-            GET @{stage_name}/{file_name}
-            FILE = '{local_path}'
-            OVERWRITE = TRUE
-        """)
+        self.execute("""
+            GET @?/?
+            FILE = ?
+        """, (stage_name, file_name, local_path))
         
     def cleanup_stage(self, stage_name: str) -> None:
-        """Remove the temporary stage"""
-        self.execute(f"DROP STAGE IF EXISTS {stage_name}")
+        """Remove temporary stage"""
+        self.execute("DROP STAGE IF EXISTS ?", (stage_name,))
 
     def fetch_data_via_stage(
         self,
