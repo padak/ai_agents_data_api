@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.db.duckdb import get_duckdb_connection
+from app.db.init import init_duckdb_tables
 from app.schemas.data import (
     DataSampleRequest,
     QueryRequest,
@@ -25,49 +26,7 @@ from app.schemas.data import (
 class DataService:
     def __init__(self):
         self.db = get_duckdb_connection()
-        self._init_tables()
-
-    def _init_tables(self):
-        """Initialize the required tables if they don't exist"""
-        # Query jobs table
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS query_jobs (
-                job_id VARCHAR PRIMARY KEY,
-                query TEXT NOT NULL,
-                status VARCHAR NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                started_at TIMESTAMP,
-                completed_at TIMESTAMP,
-                error TEXT,
-                result_path TEXT
-            )
-        """)
-
-        # Table metadata
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS table_metadata (
-                table_id UUID PRIMARY KEY,
-                table_name VARCHAR NOT NULL,
-                schema_name VARCHAR NOT NULL,
-                source VARCHAR NOT NULL,
-                column_count INTEGER NOT NULL,
-                row_count INTEGER NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                last_updated TIMESTAMP NOT NULL,
-                description TEXT,
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
-            )
-        """)
-
-        # Table tags
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS table_tags (
-                table_id UUID NOT NULL,
-                tag VARCHAR NOT NULL,
-                PRIMARY KEY (table_id, tag),
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
-            )
-        """)
+        init_duckdb_tables(self.db)
 
     async def get_table_metadata(self, table_name: str, schema_name: str) -> TableMetadata:
         """Get metadata for a specific table"""

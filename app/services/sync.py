@@ -16,6 +16,7 @@ from app.schemas.sync import (
     SyncStatus,
     SyncStrategy,
 )
+from app.db.init import init_duckdb_tables
 
 
 class SyncService:
@@ -46,58 +47,37 @@ class SyncService:
             import duckdb
             from app.core.config import settings
             self._duckdb = duckdb.connect(settings.DUCKDB_PATH)
-            self._init_tables()
+            init_duckdb_tables(self._duckdb)
         return self._duckdb
-
-    def _init_tables(self):
-        """Initialize required tables for sync management"""
-        # Create allowed_tables first
-        self.duckdb.execute("""
-            CREATE TABLE IF NOT EXISTS allowed_tables (
-                table_id UUID PRIMARY KEY,
-                table_name VARCHAR NOT NULL,
-                schema_name VARCHAR NOT NULL,
-                source VARCHAR NOT NULL DEFAULT 'snowflake',
-                status VARCHAR NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(schema_name, table_name)
-            )
-        """)
-
-        # Create sync_jobs with foreign key to allowed_tables
-        self.duckdb.execute("""
-            CREATE TABLE IF NOT EXISTS sync_jobs (
-                job_id UUID PRIMARY KEY,
-                table_id UUID NOT NULL,
-                strategy VARCHAR NOT NULL,
-                status VARCHAR NOT NULL,
-                error VARCHAR,
-                stats JSON,
-                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                rows_synced INTEGER DEFAULT 0,
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id)
-            )
-        """)
-
-        # Create table_sync_status with foreign keys to both tables
-        self.duckdb.execute("""
-            CREATE TABLE IF NOT EXISTS table_sync_status (
-                table_id UUID NOT NULL,
-                last_sync_id UUID,
-                last_sync_status VARCHAR,
-                last_sync_at TIMESTAMP,
-                last_error VARCHAR,
-                row_count INTEGER DEFAULT 0,
-                size_bytes INTEGER DEFAULT 0,
-                PRIMARY KEY (table_id),
-                FOREIGN KEY (table_id) REFERENCES allowed_tables(table_id),
-                FOREIGN KEY (last_sync_id) REFERENCES sync_jobs(job_id)
-            )
-        """)
 
     async def register_table(self, table_name: str, schema_name: str) -> Dict[str, Any]:
         """Register a table for syncing (admin only)"""
+        # First check if table already exists
+        existing = self.duckdb.execute("""
+            SELECT table_id, status 
+            FROM allowed_tables 
+            WHERE table_name = ? AND schema_name = ?
+        """, [table_name, schema_name]).fetchone()
+
+        if existing:
+            # If table exists but was inactive, reactivate it
+            if existing[1] == 'inactive':
+                self.duckdb.execute("""
+                    UPDATE allowed_tables 
+                    SET status = 'active', created_at = CURRENT_TIMESTAMP
+                    WHERE table_name = ? AND schema_name = ?
+                """, [table_name, schema_name])
+                status = 'active'
+            else:
+                status = existing[1]
+            
+            return {
+                "table_id": str(existing[0]),
+                "table_name": table_name,
+                "schema_name": schema_name,
+                "status": status
+            }
+
         # Verify table exists in Snowflake
         try:
             self.snowflake.fetch_schema(table_name, schema_name)
@@ -122,6 +102,68 @@ class SyncService:
             "status": "active"
         }
 
+    async def remove_table(self, table_name: str, schema_name: str) -> Dict[str, Any]:
+        """Remove a table from sync (admin only)"""
+        # Check if table exists
+        existing = self.duckdb.execute("""
+            SELECT table_id, status 
+            FROM allowed_tables 
+            WHERE table_name = ? AND schema_name = ?
+        """, [table_name, schema_name]).fetchone()
+
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Table {schema_name}.{table_name} not found in allowed tables"
+            )
+
+        table_id = existing[0]
+
+        # Begin transaction
+        self.duckdb.execute("BEGIN TRANSACTION")
+        try:
+            # Mark table as inactive in allowed_tables
+            self.duckdb.execute("""
+                UPDATE allowed_tables 
+                SET status = 'inactive' 
+                WHERE table_id = ?
+            """, [table_id])
+
+            # Drop the synced table if it exists
+            self.duckdb.execute(f"""
+                DROP TABLE IF EXISTS "{schema_name}"."{table_name}"
+            """)
+
+            # Clean up sync_jobs
+            self.duckdb.execute("""
+                DELETE FROM sync_jobs 
+                WHERE table_id = ?
+            """, [table_id])
+
+            # Clean up table_sync_status
+            self.duckdb.execute("""
+                DELETE FROM table_sync_status 
+                WHERE table_id = ?
+            """, [table_id])
+
+            # Commit transaction
+            self.duckdb.execute("COMMIT")
+
+        except Exception as e:
+            # Rollback on error
+            self.duckdb.execute("ROLLBACK")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to remove table: {str(e)}"
+            )
+
+        return {
+            "table_id": str(table_id),
+            "table_name": table_name,
+            "schema_name": schema_name,
+            "status": "inactive"
+        }
+
     async def _create_duckdb_table(
         self,
         table_name: str,
@@ -129,6 +171,9 @@ class SyncService:
         columns: list
     ):
         """Create or update DuckDB table schema"""
+        # Create schema if it doesn't exist
+        self.duckdb.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"')
+
         # Map Snowflake types to DuckDB types
         type_mapping = {
             "NUMBER": "DOUBLE",
@@ -206,7 +251,7 @@ class SyncService:
         config = config or SyncConfig()
 
         # Check if table is allowed
-        if not self.is_table_allowed(sync_request.schema_name, sync_request.table_name):
+        if not self.is_table_allowed(sync_request.table_name, sync_request.schema_name):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Table {sync_request.schema_name}.{sync_request.table_name} not found or not allowed"
@@ -299,19 +344,16 @@ class SyncService:
             )
             self.duckdb.execute("""
                 INSERT INTO table_sync_status (
-                    table_id, last_sync_id, last_sync_status,
-                    last_sync_at, row_count, size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (table_id) DO UPDATE SET
-                    last_sync_id = excluded.last_sync_id,
+                    table_id, job_id, last_sync_status,
+                    last_sync_at, total_rows_synced
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (table_id, job_id) DO UPDATE SET
                     last_sync_status = excluded.last_sync_status,
                     last_sync_at = excluded.last_sync_at,
-                    row_count = excluded.row_count,
-                    size_bytes = excluded.size_bytes
+                    total_rows_synced = excluded.total_rows_synced
             """, [
                 table_id, job_id, SyncStatus.COMPLETED,
-                completed_at, table_stats["row_count"],
-                table_stats["size_bytes"]
+                completed_at, table_stats["row_count"]
             ])
 
             return SyncResponse(
@@ -329,13 +371,13 @@ class SyncService:
             error_msg = str(e)
             self.duckdb.execute("""
                 UPDATE sync_jobs
-                SET status = ?, completed_at = ?, error = ?
+                SET status = ?, completed_at = ?, error_message = ?
                 WHERE job_id = ?
             """, [SyncStatus.FAILED, datetime.utcnow(), error_msg, job_id])
 
             self.duckdb.execute("""
                 UPDATE table_sync_status
-                SET last_sync_status = ?, last_error = ?
+                SET last_sync_status = ?, last_error_message = ?
                 WHERE table_id = ?
             """, [SyncStatus.FAILED, error_msg, table_id])
 

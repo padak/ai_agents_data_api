@@ -1,49 +1,23 @@
-from datetime import datetime
-import uuid
 from typing import List
+import uuid
+from datetime import datetime
 
 from app.core.auth import create_token
+from app.db.duckdb import get_duckdb_connection
+from app.db.init import init_duckdb_tables
 from app.schemas.admin import (
     TokenCreate,
     TokenResponse,
     TableManagement,
     TableResponse,
-    TokenType,
     TableAction,
 )
-from app.db.duckdb import get_duckdb_connection
 
 
 class AdminService:
     def __init__(self):
         self.db = get_duckdb_connection()
-        self._init_tables()
-
-    def _init_tables(self):
-        """Initialize the required tables if they don't exist"""
-        # Tokens table
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS tokens (
-                token_id VARCHAR PRIMARY KEY,
-                token VARCHAR NOT NULL,
-                type VARCHAR NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                revoked_at TIMESTAMP
-            )
-        """)
-
-        # Allowed tables
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS allowed_tables (
-                table_id UUID PRIMARY KEY,
-                table_name VARCHAR NOT NULL,
-                schema_name VARCHAR NOT NULL,
-                source VARCHAR NOT NULL DEFAULT 'snowflake',
-                status VARCHAR NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (schema_name, table_name)
-            )
-        """)
+        init_duckdb_tables(self.db)
 
     async def create_token(self, token_data: TokenCreate) -> TokenResponse:
         """Create a new token"""

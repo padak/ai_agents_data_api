@@ -3,54 +3,29 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.db.duckdb import get_duckdb_connection
+from app.db.init import init_duckdb_tables
 from app.schemas.artifacts import (
     ArtifactCreate,
     ArtifactResponse,
     ArtifactUpdate,
     ArtifactFilter,
+    ArtifactType,
+    ArtifactFormat,
 )
 
 
 class ArtifactService:
     def __init__(self):
         self.db = get_duckdb_connection()
-        self._init_tables()
+        init_duckdb_tables(self.db)
         self.artifacts_dir = Path("./data/artifacts")
         self.artifacts_dir.mkdir(exist_ok=True)
-
-    def _init_tables(self):
-        """Initialize the required tables if they don't exist"""
-        # Artifacts table
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id VARCHAR PRIMARY KEY,
-                name VARCHAR NOT NULL,
-                type VARCHAR NOT NULL,
-                format VARCHAR NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                storage_path VARCHAR NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                expires_at TIMESTAMP NOT NULL,
-                metadata JSON,
-                swarm_token VARCHAR NOT NULL
-            )
-        """)
-
-        # Artifact tags
-        self.db.execute("""
-            CREATE TABLE IF NOT EXISTS artifact_tags (
-                artifact_id VARCHAR NOT NULL,
-                tag VARCHAR NOT NULL,
-                PRIMARY KEY (artifact_id, tag),
-                FOREIGN KEY (artifact_id) REFERENCES artifacts(artifact_id)
-            )
-        """)
 
     async def create_artifact(
         self, artifact_data: ArtifactCreate, swarm_token: str
