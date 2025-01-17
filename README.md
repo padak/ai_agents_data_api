@@ -2,6 +2,14 @@
 
 A Backend API that provides controlled access to Snowflake tables (and optionally DuckDB tables) for AI agents. This API acts as a secure intermediary between AI agents and the underlying databases, providing features for data access, sampling, and artifact management.
 
+## Documentation
+
+Detailed documentation can be found in the `DOCS` folder:
+- [Instructions](DOCS/INSTRUCTIONS.md) - Comprehensive guide for the API implementation
+- [Sync Strategy](DOCS/SYNC-STRATEGY.md) - Technical details of Snowflake to DuckDB replication
+- [Plan](DOCS/PLAN.md) - Development roadmap and milestones
+- [Todo](DOCS/TODO.md) - Current development tasks and progress
+
 ## Features
 
 - Secure authentication with Swarm and Agent tokens

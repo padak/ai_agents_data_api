@@ -107,6 +107,7 @@ Authorization: Bearer <SwarmToken>;<AgentToken>
      }
      ```
    - **Response**: Status message.
+   - **Note**: For detailed technical implementation of the Snowflake to DuckDB replication process, refer to [SYNC-STRATEGY.md](SYNC-STRATEGY.md).
 
 #### 3.2 Data Access Endpoints
 
