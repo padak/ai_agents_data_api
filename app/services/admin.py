@@ -2,6 +2,7 @@ from typing import List
 import uuid
 from datetime import datetime
 
+from fastapi import HTTPException, status
 from app.core.auth import create_token
 from app.db.duckdb import get_duckdb_connection
 from app.db.init import init_duckdb_tables
@@ -53,46 +54,79 @@ class AdminService:
 
     async def manage_table(self, table_data: TableManagement) -> TableResponse:
         """Add or remove a table from the allowed list"""
-        table_id = str(uuid.uuid4())
-        
         if table_data.action == TableAction.ADD:
+            table_id = str(uuid.uuid4())
             self.db.execute("""
                 INSERT INTO allowed_tables (
                     table_id, table_name, schema_name, source, status
                 )
                 VALUES (?, ?, ?, 'snowflake', 'active')
             """, [table_id, table_data.table_name, table_data.schema_name])
-            status = "active"
+            table_status = "active"
         else:
-            self.db.execute("""
-                UPDATE allowed_tables
-                SET status = 'inactive'
+            # First get the table_id
+            result = self.db.execute("""
+                SELECT table_id
+                FROM allowed_tables
                 WHERE table_name = ? AND schema_name = ?
-            """, [table_data.table_name, table_data.schema_name])
-            status = "inactive"
+            """, [table_data.table_name, table_data.schema_name]).fetchone()
+            
+            if not result:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Table {table_data.schema_name}.{table_data.table_name} not found"
+                )
+            
+            table_id = str(result[0])
+            
+            # Begin transaction
+            self.db.execute("BEGIN TRANSACTION")
+            try:
+                # Clean up related records first due to foreign key constraints
+                self.db.execute("DELETE FROM table_tags WHERE table_id = ?", [table_id])
+                self.db.execute("DELETE FROM table_metadata WHERE table_id = ?", [table_id])
+                self.db.execute("DELETE FROM table_sync_status WHERE table_id = ?", [table_id])
+                self.db.execute("DELETE FROM sync_jobs WHERE table_id = ?", [table_id])
+                
+                # Finally remove from allowed_tables
+                self.db.execute("DELETE FROM allowed_tables WHERE table_id = ?", [table_id])
+                
+                # Drop the actual table if it exists
+                self.db.execute(f"""
+                    DROP TABLE IF EXISTS "{table_data.schema_name}"."{table_data.table_name}"
+                """)
+                
+                self.db.execute("COMMIT")
+                table_status = "removed"
+            except Exception as e:
+                self.db.execute("ROLLBACK")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to remove table: {str(e)}"
+                )
 
         return TableResponse(
-            table_id=table_id,
+            table_id=str(table_id),
             table_name=table_data.table_name,
             schema_name=table_data.schema_name,
-            status=status,
+            source="snowflake",
+            status=table_status,
         )
 
     async def list_tables(self) -> List[TableResponse]:
-        """List all allowed tables"""
-        result = self.db.execute("""
+        """List all tables in allowed_tables"""
+        results = self.db.execute("""
             SELECT table_id, table_name, schema_name, source, status
             FROM allowed_tables
-            WHERE status = 'active'
         """).fetchall()
-
+        
         return [
             TableResponse(
-                table_id=row[0],
+                table_id=str(row[0]),
                 table_name=row[1],
                 schema_name=row[2],
                 source=row[3],
-                status=row[4],
+                status=row[4]
             )
-            for row in result
+            for row in results
         ] 
