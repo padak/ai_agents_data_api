@@ -1,25 +1,31 @@
 # TODO List
 
 ## In Progress
-- Debugging Snowflake to DuckDB sync process
-  - Created sync-strategy.md with direct Snowflake commands and test script
-  - Testing export process using stages and COPY INTO command
-  - Need to verify Parquet file transfer and DuckDB import
+- Implementing Snowflake to DuckDB sync process
+  - Need to implement and test the sync functionality
+  - Need to verify data transfer and integrity
   - Need to implement and test incremental sync logic
+  - Need to add proper error handling and recovery
+  - Need to implement progress tracking for large tables
 
 ## Completed
 - Set up FastAPI project structure
 - Implemented authentication with JWT
+  - Token handling working correctly
+  - Admin token generation and validation verified
 - Added Snowflake connection handling
 - Added DuckDB integration
 - Created basic sync endpoints
-- Added table registration functionality
+- Table Management
+  - Listing allowed tables working correctly
+  - Adding/removing tables from allowed list verified
+  - Table registration and deregistration functioning properly
+  - Schema validation during registration implemented
 - Implemented Docker containerization
 - Added Redis and Celery for async tasks
+- Added proper error logging and stack traces
 
 ## Next Up
-- Implement proper error handling for sync process
-- Add progress tracking for large table syncs
 - Add data validation between source and target
 - Implement cleanup procedures for failed syncs
 - Add monitoring and logging improvements
