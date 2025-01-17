@@ -156,9 +156,11 @@ curl -X POST "http://localhost:8000/api/v1/sync/start" \
   -H "Authorization: Bearer your_access_token" \
   -H "Content-Type: application/json" \
   -d '{
-    "table_name": "data",
-    "schema_name": "WORKSPACE_833213390",
-    "strategy": "full"
+    "sync_request": {
+      "table_name": "data",
+      "schema_name": "WORKSPACE_833213390",
+      "strategy": "full"
+    }
   }'
 ```
 

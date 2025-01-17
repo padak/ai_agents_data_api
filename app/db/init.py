@@ -41,6 +41,7 @@ def init_duckdb_tables(conn: Optional[duckdb.DuckDBPyConnection] = None) -> None
         CREATE TABLE IF NOT EXISTS table_sync_status (
             table_id UUID,
             job_id UUID,
+            last_sync_id UUID,
             last_sync_at TIMESTAMP,
             last_sync_status VARCHAR,
             last_error_message VARCHAR,

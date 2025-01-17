@@ -26,6 +26,12 @@ class TableInfo(BaseModel):
     last_modified: str
 
 
+class SyncStartRequest(BaseModel):
+    """Request model for starting a sync"""
+    sync_request: SyncRequest
+    config: Optional[SyncConfig] = None
+
+
 @router.get(
     "/tables/{schema_name}",
     response_model=List[TableInfo],
@@ -147,20 +153,33 @@ async def remove_table(
       -H "Authorization: Bearer your_access_token" \\
       -H "Content-Type: application/json" \\
       -d '{
-        "table_name": "data",
-        "schema_name": "WORKSPACE_833213390",
-        "strategy": "full"
+        "sync_request": {
+          "table_name": "data",
+          "schema_name": "WORKSPACE_833213390",
+          "strategy": "full"
+        }
       }'
     ```
     """
 )
 async def start_sync(
-    sync_request: SyncRequest,
-    config: Optional[SyncConfig] = None,
+    request: SyncStartRequest,
     _: str = Depends(get_current_admin_user)
 ) -> SyncResponse:
     """Start a table synchronization."""
-    return await sync_service.start_sync(sync_request, config)
+    try:
+        return await sync_service.start_sync(request.sync_request, request.config)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log the error here but don't expose internal details
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while processing your request"
+        )
 
 
 @router.get(

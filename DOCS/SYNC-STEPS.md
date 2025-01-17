@@ -111,12 +111,31 @@ curl -X POST "http://localhost:8000/api/v1/sync/start" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "table_name": "data",
-    "schema_name": "WORKSPACE_833213390",
-    "strategy": "full"
+    "sync_request": {
+      "table_name": "data",
+      "schema_name": "WORKSPACE_833213390",
+      "strategy": "full"
+    },
+    "config": {
+      "batch_size": 10000,
+      "max_retries": 3,
+      "timeout_seconds": 3600
+    }
   }'
 ```
-Expected response: Sync job ID
+Expected response: Sync job ID and initial status
+
+**Request Fields:**
+- sync_request (required):
+  - table_name: Name of the table to sync
+  - schema_name: Schema containing the table
+  - strategy: Sync strategy ("full" or "incremental")
+  - incremental_key: Column to use for incremental sync (required if strategy is "incremental")
+  - filter_condition: Optional WHERE clause to filter data
+- config (optional):
+  - batch_size: Number of rows to process in each batch (default: 10000)
+  - max_retries: Maximum retry attempts for failed operations (default: 3)
+  - timeout_seconds: Maximum time in seconds for sync operation (default: 3600)
 
 **Implementation Details:**
 1. Request hits `app/services/sync.py:start_sync()`

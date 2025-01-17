@@ -1,5 +1,14 @@
+import logging
 from celery import Celery
+from celery.signals import task_failure
 from app.core.config import settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 celery_app = Celery(
     "ai_agents_data_api",
@@ -26,4 +35,13 @@ celery_app.conf.update(
         "app.tasks.sync.*": {"queue": "sync"},
         "app.tasks.cleanup.*": {"queue": "cleanup"}
     }
-) 
+)
+
+@task_failure.connect
+def handle_task_failure(task_id, exc, args, kwargs, traceback, *args_, **kwargs_):
+    """Log detailed information about task failures"""
+    logger.error(
+        f"Task {task_id} failed: {exc}\n"
+        f"Args: {args}\nKwargs: {kwargs}\n"
+        f"Traceback:\n{traceback}"
+    ) 
